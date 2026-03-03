@@ -2,19 +2,22 @@
 
 use eframe::egui;
 
-use crate::config::{AppSettings, ConfigWindow};
+use crate::config::AppSettings;
 use crate::core::DataCollector;
-use crate::renderer::OverlayWidget;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// Main SimTrace application
 pub struct SimTraceApp {
-    /// Configuration window
-    config_window: ConfigWindow,
-    /// Overlay widget
-    overlay_widget: Option<OverlayWidget>,
-    /// Whether overlay is visible
-    overlay_visible: bool,
+    /// Settings
+    settings: AppSettings,
+    /// Data collector
+    collector: Option<Arc<Mutex<DataCollector>>>,
+    /// Current steering angle
+    current_steering: f32,
+    /// Current ABS state
+    current_abs_active: bool,
+    /// Whether overlay viewport is open
+    overlay_open: bool,
 }
 
 impl SimTraceApp {
@@ -26,64 +29,75 @@ impl SimTraceApp {
         // Try to load existing settings
         let (settings, _) = load_settings();
 
-        // Create config window with loaded settings
-        let mut config_window = ConfigWindow::new();
-        config_window.set_settings(settings.clone());
-
         Self {
-            config_window,
-            overlay_widget: None,
-            overlay_visible: false,
+            settings,
+            collector: None,
+            current_steering: 0.0,
+            current_abs_active: false,
+            overlay_open: false,
         }
     }
 
-    /// Toggle overlay visibility
-    fn toggle_overlay(&mut self) {
-        self.overlay_visible = !self.overlay_visible;
+    /// Toggle overlay viewport
+    fn toggle_overlay(&mut self, ctx: &egui::Context) {
+        self.overlay_open = !self.overlay_open;
 
-        if self.overlay_visible {
-            // Create overlay if it doesn't exist
-            if self.overlay_widget.is_none() {
-                let settings = self.config_window.settings();
-
-                // Create data collector
+        if self.overlay_open {
+            // Create data collector if needed
+            if self.collector.is_none() {
                 let collector_config = crate::core::collector::CollectorConfig {
-                    update_rate_hz: settings.collector.update_rate_hz,
-                    buffer_window_secs: settings.collector.buffer_window_secs.unwrap_or(10),
+                    update_rate_hz: self.settings.collector.update_rate_hz,
+                    buffer_window_secs: self.settings.collector.buffer_window_secs.unwrap_or(10),
                 };
                 let collector = DataCollector::new(collector_config);
-                let collector = Arc::new(collector);
-
-                // Create overlay widget
-                self.overlay_widget = Some(OverlayWidget::new(settings.clone(), collector));
+                self.collector = Some(Arc::new(Mutex::new(collector)));
             }
+
+            // Open the overlay viewport
+            open_overlay_viewport(ctx, &self.settings);
+        } else {
+            // Close the overlay viewport
+            close_overlay_viewport(ctx);
         }
     }
 
-    /// Save settings and update overlay
-    fn save_settings(&mut self) {
-        // Save settings via config window
-        self.config_window.save_settings();
+    /// Save settings
+    fn save_settings(&self) -> Result<(), anyhow::Error> {
+        let config_path = dirs::config_dir()
+            .map(|p| p.join("simtrace").join("settings.toml"))
+            .or_else(|| dirs::home_dir().map(|p| p.join(".simtrace").join("settings.toml")))
+            .ok_or_else(|| anyhow::anyhow!("Could not determine config directory"))?;
 
-        // Get updated settings
-        let new_settings = self.config_window.settings();
-
-        // Update overlay if visible
-        if self.overlay_visible {
-            if let Some(ref mut overlay) = self.overlay_widget {
-                overlay.update_settings(new_settings.clone());
-            }
+        if let Some(parent) = config_path.parent() {
+            std::fs::create_dir_all(parent)?;
         }
+
+        self.settings.save(&config_path)?;
+        tracing::info!("Settings saved to {:?}", config_path);
+        Ok(())
     }
 }
 
 impl eframe::App for SimTraceApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Show config window (always visible, small)
+        // Poll telemetry if we have a collector
+        if let Some(ref collector) = self.collector {
+            if let Ok(mut c) = collector.lock() {
+                c.poll();
+                let buffer = c.buffer();
+                if let Some(point) = buffer.latest() {
+                    self.current_steering = point.telemetry.steering_angle;
+                    self.current_abs_active = point.abs_active;
+                }
+            }
+        }
+
+        // Config window - always visible in main viewport
         egui::Window::new("⚙️ Config")
             .resizable(true)
-            .default_size([400.0, 450.0])
+            .default_size([350.0, 300.0])
             .anchor(egui::Align2::LEFT_TOP, [10.0, 10.0])
+            .collapsible(false)
             .show(ctx, |ui| {
                 ui.vertical(|ui| {
                     ui.heading("SimTrace");
@@ -91,11 +105,30 @@ impl eframe::App for SimTraceApp {
 
                     // Action buttons
                     ui.horizontal(|ui| {
-                        if ui.button("Toggle Overlay").clicked() {
-                            self.toggle_overlay();
+                        if ui
+                            .button(if self.overlay_open {
+                                "Hide Overlay"
+                            } else {
+                                "Show Overlay"
+                            })
+                            .clicked()
+                        {
+                            self.toggle_overlay(ctx);
                         }
-                        if ui.button("Save Settings").clicked() {
-                            self.save_settings();
+                        if ui.button("Save").clicked() {
+                            if let Err(e) = self.save_settings() {
+                                ui.label(
+                                    egui::RichText::new(format!("Error: {}", e))
+                                        .small()
+                                        .color(egui::Color32::RED),
+                                );
+                            } else {
+                                ui.label(
+                                    egui::RichText::new("✓ Saved!")
+                                        .small()
+                                        .color(egui::Color32::GREEN),
+                                );
+                            }
                         }
                     });
 
@@ -103,59 +136,41 @@ impl eframe::App for SimTraceApp {
                     ui.separator();
 
                     // Quick settings
-                    ui.label("Quick Settings");
-                    let mut settings = self.config_window.settings();
+                    ui.label("Overlay Size");
                     ui.horizontal(|ui| {
                         ui.label("Width:");
                         ui.add(egui::Slider::new(
-                            &mut settings.overlay.width,
+                            &mut self.settings.overlay.width,
                             300.0..=1200.0,
                         ));
                     });
                     ui.horizontal(|ui| {
-                        ui.label("Opacity:");
-                        ui.add(egui::Slider::new(&mut settings.overlay.opacity, 0.1..=1.0));
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Time Window:");
+                        ui.label("Height:");
                         ui.add(egui::Slider::new(
-                            &mut settings.graph.window_seconds,
-                            2.0..=30.0,
+                            &mut self.settings.overlay.height,
+                            200.0..=800.0,
                         ));
                     });
-                    // Apply settings immediately
-                    self.config_window.set_settings_mut(settings);
 
-                    // Status
-                    ui.add_space(10.0);
-                    ui.separator();
-                    if let Some(err) = self.config_window.error_message() {
-                        ui.label(egui::RichText::new(err).small().color(egui::Color32::RED));
-                    }
-                    if self.config_window.settings_saved() {
-                        ui.label(
-                            egui::RichText::new("✓ Saved!")
-                                .small()
-                                .color(egui::Color32::GREEN),
+                    ui.add_space(5.0);
+                    ui.label("Opacity");
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Slider::new(
+                            &mut self.settings.overlay.opacity,
+                            0.1..=1.0,
+                        ));
+                    });
+
+                    ui.add_space(5.0);
+                    ui.label("Time Window");
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::Slider::new(&mut self.settings.graph.window_seconds, 2.0..=30.0)
+                                .suffix("s"),
                         );
-                        self.config_window.clear_settings_saved();
-                    }
+                    });
                 });
             });
-
-        // Show overlay widget if visible
-        if self.overlay_visible {
-            if let Some(ref mut overlay) = self.overlay_widget {
-                // Poll telemetry
-                overlay.collector().poll();
-
-                // Update telemetry values
-                overlay.update_telemetry();
-
-                // Show the overlay (separate borderless window)
-                overlay.show(ctx);
-            }
-        }
     }
 }
 
@@ -178,6 +193,81 @@ fn load_settings() -> (AppSettings, bool) {
     }
 
     (AppSettings::default(), false)
+}
+
+/// Overlay viewport ID
+fn overlay_viewport_id() -> egui::ViewportId {
+    egui::ViewportId::from_hash_of("simtrace-overlay")
+}
+
+/// Open the overlay viewport
+fn open_overlay_viewport(ctx: &egui::Context, settings: &AppSettings) {
+    let viewport_builder = egui::ViewportBuilder::default()
+        .with_title("")
+        .with_inner_size([settings.overlay.width, settings.overlay.height])
+        .with_position([settings.overlay.position_x, settings.overlay.position_y])
+        .with_decorations(false)
+        .with_transparent(true);
+
+    ctx.show_viewport_immediate(overlay_viewport_id(), viewport_builder, |ctx, _class| {
+        // Configure the overlay viewport
+        ctx.set_visuals(egui::Visuals::dark());
+
+        // Draw semi-transparent background
+        let alpha = settings.overlay.opacity;
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let bg_color = egui::Color32::from_black_alpha(((1.0 - alpha) * 255.0) as u8);
+            ui.painter()
+                .rect_filled(ui.available_rect_before_wrap(), 4.0, bg_color);
+
+            // Content
+            ui.with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
+                // Drag handle area
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("☰").small().weak());
+                    ui.label(egui::RichText::new("🏁 SimTrace").small());
+                });
+                ui.add_space(4.0);
+
+                // Trace graph
+                let graph_size = ui.available_size_before_wrap();
+                let graph_height = (graph_size.y * 0.6).max(100.0);
+                let graph_size = egui::Vec2::new(graph_size.x, graph_height);
+
+                crate::renderer::TraceGraph::new_simple(&settings.graph, &settings.colors)
+                    .show_simple(ui, graph_size);
+
+                ui.add_space(8.0);
+
+                // Bottom row
+                ui.horizontal(|ui| {
+                    // Steering wheel placeholder
+                    ui.vertical(|ui| {
+                        ui.label(egui::RichText::new("Steering").small().weak());
+                        ui.label(
+                            egui::RichText::new(format!("{:.0}°", 0.0))
+                                .small()
+                                .monospace(),
+                        );
+                    });
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(egui::RichText::new("Window").small().weak());
+                        ui.label(
+                            egui::RichText::new(format!("{:.1}s", settings.graph.window_seconds))
+                                .small()
+                                .monospace(),
+                        );
+                    });
+                });
+            });
+        });
+    });
+}
+
+/// Close the overlay viewport
+fn close_overlay_viewport(ctx: &egui::Context) {
+    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
 }
 
 /// Configure egui settings

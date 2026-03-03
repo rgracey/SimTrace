@@ -2,25 +2,34 @@
 
 use egui::{Pos2, Rect, Response, Stroke, Ui, Vec2};
 
-use crate::config::{ColorScheme, GraphSettings};
+use crate::config::{AppSettings, ColorScheme, GraphSettings};
 use crate::core::{TelemetryBuffer, TelemetryPoint};
 
 /// Trace graph renderer
 pub struct TraceGraph<'a> {
-    buffer: &'a TelemetryBuffer,
+    buffer: Option<&'a TelemetryBuffer>,
     settings: &'a GraphSettings,
     colors: &'a ColorScheme,
 }
 
 impl<'a> TraceGraph<'a> {
-    /// Create a new trace graph renderer
+    /// Create a new trace graph renderer with buffer
     pub fn new(
         buffer: &'a TelemetryBuffer,
         settings: &'a GraphSettings,
         colors: &'a ColorScheme,
     ) -> Self {
         Self {
-            buffer,
+            buffer: Some(buffer),
+            settings,
+            colors,
+        }
+    }
+
+    /// Create a simple trace graph renderer (no buffer, for overlay preview)
+    pub fn new_simple(settings: &'a GraphSettings, colors: &'a ColorScheme) -> Self {
+        Self {
+            buffer: None,
             settings,
             colors,
         }
@@ -40,16 +49,35 @@ impl<'a> TraceGraph<'a> {
             self.draw_grid(&painter, rect);
         }
 
-        // Draw traces
-        let points = self.buffer.get_points();
-        if !points.is_empty() {
-            self.draw_throttle_trace(&painter, rect, &points);
-            self.draw_brake_trace(&painter, rect, &points);
+        // Draw traces if we have data
+        if let Some(buffer) = self.buffer {
+            let points = buffer.get_points();
+            if !points.is_empty() {
+                self.draw_throttle_trace(&painter, rect, &points);
+                self.draw_brake_trace(&painter, rect, &points);
+            }
         }
 
         // Draw legend
         if self.settings.show_legend {
             self.draw_legend(&painter, rect);
+        }
+
+        response
+    }
+
+    /// Render a simple trace graph (overlay version without buffer access)
+    pub fn show_simple(&self, ui: &mut Ui, size: Vec2) -> Response {
+        let (rect, response) = ui.allocate_exact_size(size, egui::Sense::hover());
+        let painter = ui.painter().with_clip_rect(rect);
+
+        // Draw background
+        let bg_color = AppSettings::parse_color(&self.colors.background);
+        painter.rect_filled(rect, 0.0, bg_color);
+
+        // Draw grid
+        if self.settings.show_grid {
+            self.draw_grid(&painter, rect);
         }
 
         response
@@ -218,6 +246,3 @@ impl<'a> TraceGraph<'a> {
         rect.max.y - (rect.height() * value)
     }
 }
-
-// Import AppSettings for color parsing
-use crate::config::AppSettings;

@@ -6,6 +6,6 @@ pub mod steering_wheel;
 pub mod trace_graph;
 
 pub use app::SimTraceApp;
-pub use overlay::OverlayWidget;
+
 pub use steering_wheel::SteeringWheel;
 pub use trace_graph::TraceGraph;
