@@ -1,7 +1,7 @@
 //! Steering wheel — ring + sweep arc
 
 use egui::{Color32, Painter, Pos2, Shape, Stroke};
-use std::f32::consts::FRAC_PI_2;
+use std::f32::consts::{FRAC_PI_2, TAU};
 
 pub struct SteeringWheel;
 
@@ -10,12 +10,20 @@ impl SteeringWheel {
         let a = (opacity * 255.0) as u8;
         let thickness = (radius * 0.28).max(5.0);
 
-        // Background ring (dark track)
-        painter.circle_stroke(
-            center,
-            radius,
+        // Background ring — drawn as a polyline (same tessellator as the sweep arc below,
+        // guaranteeing pixel-perfect alignment between the ring and sweep).
+        const RING_STEPS: usize = 120;
+        let mut ring: Vec<Pos2> = (0..RING_STEPS)
+            .map(|i| {
+                let angle = (i as f32 / RING_STEPS as f32) * TAU;
+                Pos2::new(center.x + radius * angle.cos(), center.y + radius * angle.sin())
+            })
+            .collect();
+        ring.push(ring[0]); // close the loop
+        painter.add(Shape::line(
+            ring,
             Stroke::new(thickness, Color32::from_rgba_unmultiplied(30, 30, 30, a)),
-        );
+        ));
 
         // Sweep arc — clamp to ±360° visually, the text handles the rest
         let sweep_deg = angle_deg.clamp(-360.0, 360.0);
