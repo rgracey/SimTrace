@@ -39,7 +39,7 @@ impl SimTraceApp {
     }
 
     /// Toggle overlay viewport
-    fn toggle_overlay(&mut self, ctx: &egui::Context) {
+    fn toggle_overlay(&mut self, _ctx: &egui::Context) {
         self.overlay_open = !self.overlay_open;
 
         if self.overlay_open {
@@ -52,12 +52,6 @@ impl SimTraceApp {
                 let collector = DataCollector::new(collector_config);
                 self.collector = Some(Arc::new(Mutex::new(collector)));
             }
-
-            // Open the overlay viewport
-            open_overlay_viewport(ctx, &self.settings);
-        } else {
-            // Close the overlay viewport
-            close_overlay_viewport(ctx);
         }
     }
 
@@ -91,6 +85,15 @@ impl eframe::App for SimTraceApp {
                 }
             }
         }
+
+        // Always render overlay viewport to keep it alive, but hide when closed
+        render_overlay_viewport(
+            ctx,
+            &self.settings,
+            self.current_steering,
+            self.current_abs_active,
+            self.overlay_open,
+        );
 
         // Config window - always visible in main viewport
         egui::Window::new("⚙️ Config")
@@ -200,16 +203,28 @@ fn overlay_viewport_id() -> egui::ViewportId {
     egui::ViewportId::from_hash_of("simtrace-overlay")
 }
 
-/// Open the overlay viewport
-fn open_overlay_viewport(ctx: &egui::Context, settings: &AppSettings) {
+/// Render the overlay viewport
+fn render_overlay_viewport(
+    ctx: &egui::Context,
+    settings: &AppSettings,
+    current_steering: f32,
+    _current_abs_active: bool,
+    is_open: bool,
+) {
     let viewport_builder = egui::ViewportBuilder::default()
         .with_title("")
         .with_inner_size([settings.overlay.width, settings.overlay.height])
         .with_position([settings.overlay.position_x, settings.overlay.position_y])
         .with_decorations(false)
-        .with_transparent(true);
+        .with_transparent(true)
+        .with_active(is_open);
 
     ctx.show_viewport_immediate(overlay_viewport_id(), viewport_builder, |ctx, _class| {
+        // Only render if the viewport is active/open
+        if !is_open {
+            return;
+        }
+
         // Configure the overlay viewport
         ctx.set_visuals(egui::Visuals::dark());
 
@@ -245,7 +260,7 @@ fn open_overlay_viewport(ctx: &egui::Context, settings: &AppSettings) {
                     ui.vertical(|ui| {
                         ui.label(egui::RichText::new("Steering").small().weak());
                         ui.label(
-                            egui::RichText::new(format!("{:.0}°", 0.0))
+                            egui::RichText::new(format!("{:.0}°", current_steering))
                                 .small()
                                 .monospace(),
                         );
@@ -263,11 +278,6 @@ fn open_overlay_viewport(ctx: &egui::Context, settings: &AppSettings) {
             });
         });
     });
-}
-
-/// Close the overlay viewport
-fn close_overlay_viewport(ctx: &egui::Context) {
-    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
 }
 
 /// Configure egui settings
