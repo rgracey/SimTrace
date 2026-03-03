@@ -10,6 +10,7 @@ pub struct TraceGraph<'a> {
     buffer: Option<&'a TelemetryBuffer>,
     settings: &'a GraphSettings,
     colors: &'a ColorScheme,
+    opacity: f32,
 }
 
 impl<'a> TraceGraph<'a> {
@@ -18,20 +19,23 @@ impl<'a> TraceGraph<'a> {
         buffer: &'a TelemetryBuffer,
         settings: &'a GraphSettings,
         colors: &'a ColorScheme,
+        opacity: f32,
     ) -> Self {
         Self {
             buffer: Some(buffer),
             settings,
             colors,
+            opacity,
         }
     }
 
     /// Create a simple trace graph renderer (no buffer, for overlay preview)
-    pub fn new_simple(settings: &'a GraphSettings, colors: &'a ColorScheme) -> Self {
+    pub fn new_simple(settings: &'a GraphSettings, colors: &'a ColorScheme, opacity: f32) -> Self {
         Self {
             buffer: None,
             settings,
             colors,
+            opacity,
         }
     }
 
@@ -71,11 +75,11 @@ impl<'a> TraceGraph<'a> {
         let (rect, response) = ui.allocate_exact_size(size, egui::Sense::hover());
         let painter = ui.painter().with_clip_rect(rect);
 
-        // Draw background
-        let bg_color = AppSettings::parse_color(&self.colors.background);
+        // Draw background with opacity
+        let bg_color = self.apply_opacity(&self.colors.background);
         painter.rect_filled(rect, 0.0, bg_color);
 
-        // Draw grid
+        // Draw grid with opacity
         if self.settings.show_grid {
             self.draw_grid(&painter, rect);
         }
@@ -84,7 +88,7 @@ impl<'a> TraceGraph<'a> {
     }
 
     fn draw_grid(&self, painter: &egui::Painter, rect: Rect) {
-        let grid_color = AppSettings::parse_color(&self.colors.grid);
+        let grid_color = self.apply_opacity(&self.colors.grid);
         let stroke = Stroke::new(1.0, grid_color);
 
         // Horizontal grid lines (0%, 25%, 50%, 75%, 100%)
@@ -105,7 +109,7 @@ impl<'a> TraceGraph<'a> {
     }
 
     fn draw_throttle_trace(&self, painter: &egui::Painter, rect: Rect, points: &[TelemetryPoint]) {
-        let color = AppSettings::parse_color(&self.colors.throttle);
+        let color = self.apply_opacity(&self.colors.throttle);
         let stroke = Stroke::new(self.settings.line_width, color);
 
         let line_points: Vec<Pos2> = points
@@ -163,9 +167,9 @@ impl<'a> TraceGraph<'a> {
             }
 
             let color = if abs_active {
-                AppSettings::parse_color(&self.colors.abs_active)
+                self.apply_opacity(&self.colors.abs_active)
             } else {
-                AppSettings::parse_color(&self.colors.brake)
+                self.apply_opacity(&self.colors.brake)
             };
 
             let stroke = Stroke::new(self.settings.line_width, color);
@@ -174,8 +178,10 @@ impl<'a> TraceGraph<'a> {
     }
 
     fn draw_legend(&self, painter: &egui::Painter, rect: Rect) {
-        let text_color = AppSettings::parse_color(&self.colors.text);
-        let legend_bg = AppSettings::parse_color(&self.colors.background).linear_multiply(0.8);
+        let text_color = self.apply_opacity(&self.colors.text);
+        let legend_bg = self
+            .apply_opacity(&self.colors.background)
+            .linear_multiply(0.8);
 
         let legend_rect =
             Rect::from_min_size(rect.min + Vec2::new(10.0, 10.0), Vec2::new(120.0, 70.0));
@@ -183,7 +189,7 @@ impl<'a> TraceGraph<'a> {
         painter.rect_filled(legend_rect, 4.0, legend_bg);
 
         // Throttle
-        let throttle_color = AppSettings::parse_color(&self.colors.throttle);
+        let throttle_color = self.apply_opacity(&self.colors.throttle);
         painter.line_segment(
             [
                 Pos2::new(legend_rect.min.x + 5.0, legend_rect.min.y + 15.0),
@@ -200,7 +206,7 @@ impl<'a> TraceGraph<'a> {
         );
 
         // Brake
-        let brake_color = AppSettings::parse_color(&self.colors.brake);
+        let brake_color = self.apply_opacity(&self.colors.brake);
         painter.line_segment(
             [
                 Pos2::new(legend_rect.min.x + 5.0, legend_rect.min.y + 35.0),
@@ -217,7 +223,7 @@ impl<'a> TraceGraph<'a> {
         );
 
         // ABS
-        let abs_color = AppSettings::parse_color(&self.colors.abs_active);
+        let abs_color = self.apply_opacity(&self.colors.abs_active);
         painter.line_segment(
             [
                 Pos2::new(legend_rect.min.x + 5.0, legend_rect.min.y + 55.0),
@@ -244,5 +250,14 @@ impl<'a> TraceGraph<'a> {
     fn y_position(&self, rect: Rect, value: f32) -> f32 {
         // Invert Y (0 = bottom, 1 = top)
         rect.max.y - (rect.height() * value)
+    }
+
+    /// Apply opacity to a color
+    fn apply_opacity(&self, color_hex: &str) -> egui::Color32 {
+        let base_color = AppSettings::parse_color(color_hex);
+        // Multiply existing alpha by the opacity factor
+        let [r, g, b, a] = base_color.to_array();
+        let new_alpha = ((a as f32) * self.opacity) as u8;
+        egui::Color32::from_rgba_unmultiplied(r, g, b, new_alpha)
     }
 }

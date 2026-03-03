@@ -111,6 +111,7 @@ impl OverlayWidget {
                 &self.collector.buffer(),
                 &self.settings.graph,
                 &self.settings.colors,
+                self.settings.overlay.opacity,
             )
             .show(ui, graph_size);
 
