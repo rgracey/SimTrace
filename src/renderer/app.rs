@@ -423,10 +423,10 @@ fn draw_telemetry(
              g => g.to_string(),
         };
         ui.painter().text(
-            egui::pos2(center.x, center.y - wheel_radius * 0.20),
+            egui::pos2(center.x, center.y - wheel_radius * 0.32),
             egui::Align2::CENTER_CENTER,
             gear_str,
-            egui::FontId::monospace((wheel_radius * 0.52).max(10.0)),
+            egui::FontId::monospace((wheel_radius * 0.68).max(10.0)),
             with_alpha(egui::Color32::WHITE, a),
         );
 
@@ -437,8 +437,8 @@ fn draw_telemetry(
         let speed_rect = egui::Rect::from_center_size(speed_pos, egui::vec2(wheel_radius * 1.2, wheel_radius * 0.5));
         let speed_resp = ui.allocate_rect(speed_rect, egui::Sense::click());
         if speed_resp.clicked() { settings.graph.speed_mph = !settings.graph.speed_mph; }
-        let speed_font_size = (wheel_radius * 0.32).max(9.0);
-        let unit_font_size  = (wheel_radius * 0.22).max(8.0);
+        let speed_font_size = (wheel_radius * 0.42).max(9.0);
+        let unit_font_size  = (wheel_radius * 0.28).max(8.0);
         // Unit label above the number with a bit of breathing room
         ui.painter().text(
             egui::pos2(center.x, speed_pos.y - speed_font_size * 0.80),
