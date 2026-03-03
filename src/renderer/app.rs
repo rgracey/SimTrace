@@ -419,7 +419,7 @@ fn draw_telemetry(
         // Center the wheel in the cap — vertically centred, horizontally at cap centre
         let center       = wheel_rect.center();
         // Fit inside the cap with margin for stroke (thickness ≈ radius * 0.28)
-        let wheel_radius = (wheel_col_w / 2.0 * 0.64).max(10.0);
+        let wheel_radius = (wheel_col_w / 2.0 * 0.82).max(10.0);
 
         crate::renderer::SteeringWheel::draw(
             ui.painter(), center, wheel_radius, current_steering, opacity,
