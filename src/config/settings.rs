@@ -111,7 +111,7 @@ impl Default for AppSettings {
             },
             collector: CollectorConfig {
                 update_rate_hz: 60,
-                plugin: "assetto_competizione".to_string(),
+                plugin: "mock".to_string(),
                 reconnect_delay_ms: 1000,
                 buffer_window_secs: Some(10),
             },

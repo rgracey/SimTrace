@@ -1,4 +1,4 @@
-//! Assetto Corsa Competizione plugin
+//! Assetto Corsa Competizione plugin (Windows only — uses shared memory)
 
 #[cfg(windows)]
 mod shared_memory;
@@ -11,10 +11,3 @@ mod acc_plugin;
 
 #[cfg(windows)]
 pub use acc_plugin::AccPlugin;
-
-/// Mock plugin for non-Windows platforms (development/testing)
-#[cfg(not(windows))]
-mod mock_plugin;
-
-#[cfg(not(windows))]
-pub use mock_plugin::AccPlugin;

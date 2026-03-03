@@ -22,6 +22,8 @@ pub struct SimTraceApp {
     config_open: bool,
     /// 0.0 = fully hidden, 1.0 = fully visible
     bar_alpha: f32,
+    /// Tracks which plugin is currently active so we can detect dropdown changes
+    active_plugin: String,
 }
 
 impl SimTraceApp {
@@ -33,6 +35,7 @@ impl SimTraceApp {
         });
 
         let (settings, _) = load_settings();
+        let active_plugin = settings.collector.plugin.clone();
         Self {
             settings,
             collector: None,
@@ -40,6 +43,7 @@ impl SimTraceApp {
             running: true,
             config_open: false,
             bar_alpha: 1.0,
+            active_plugin,
         }
     }
 
@@ -51,12 +55,18 @@ impl SimTraceApp {
             };
             self.collector = Some(Arc::new(Mutex::new(DataCollector::new(cfg))));
         }
+        self.activate_plugin();
+        self.running = true;
+    }
+
+    fn activate_plugin(&mut self) {
+        let plugin = self.settings.collector.plugin.clone();
         if let Some(c) = &self.collector {
             if let Ok(mut c) = c.lock() {
-                let _ = c.activate_plugin(&self.settings.collector.plugin);
+                let _ = c.activate_plugin(&plugin);
             }
         }
-        self.running = true;
+        self.active_plugin = plugin;
     }
 
     fn stop(&mut self) {
@@ -87,6 +97,8 @@ impl eframe::App for SimTraceApp {
 
         if self.running && self.collector.is_none() {
             self.start();
+        } else if self.settings.collector.plugin != self.active_plugin {
+            self.activate_plugin();
         }
 
         let fps = self.settings.graph.overlay_fps;
@@ -413,7 +425,7 @@ fn draw_config(ui: &mut egui::Ui, settings: &mut AppSettings, running: &mut bool
         .show_ui(ui, |ui| {
             for (id, name) in &[
                 ("assetto_competizione", "Assetto Corsa Competizione"),
-                ("test", "Test (Mock Data)"),
+                ("mock", "Mock (Simulated Data)"),
             ] {
                 ui.selectable_value(&mut settings.collector.plugin, id.to_string(), *name);
             }
@@ -501,7 +513,7 @@ fn color_row(ui: &mut egui::Ui, label: &str, hex: &mut String) {
 fn plugin_display_name(plugin: &str) -> &str {
     match plugin {
         "assetto_competizione" => "Assetto Corsa Competizione",
-        "test"                 => "Test (Mock Data)",
+        "mock" | "test"        => "Mock (Simulated Data)",
         _                      => plugin,
     }
 }
