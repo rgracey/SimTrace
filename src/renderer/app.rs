@@ -338,11 +338,21 @@ fn draw_telemetry(
             (throttle, AppSettings::parse_color(&settings.colors.throttle)),
         ];
 
+        let label_h = 16.0_f32;
         for (i, (value, color)) in specs.iter().enumerate() {
             let x      = bars_rect.min.x + i as f32 * (bar_w + bar_gap);
-            let top    = bars_rect.min.y + 4.0;
+            let top    = bars_rect.min.y + label_h + 2.0;
             let bottom = bars_rect.max.y - 4.0;
             let h      = bottom - top;
+
+            // Percentage label above the track
+            p.text(
+                egui::pos2(x + bar_w / 2.0, bars_rect.min.y + label_h / 2.0),
+                egui::Align2::CENTER_CENTER,
+                format!("{:.0}%", value * 100.0),
+                egui::FontId::monospace(10.0),
+                with_alpha(LABEL_MID, a),
+            );
 
             let track = egui::Rect::from_min_size(egui::pos2(x, top), egui::vec2(bar_w, h));
 
