@@ -503,7 +503,17 @@ fn draw_config(ui: &mut egui::Ui, settings: &mut AppSettings, running: &mut bool
     // ── Display ──────────────────────────────────────────────────────────────
     section_header(ui, "DISPLAY");
     ui.checkbox(&mut settings.graph.show_legend, "Show legend");
-    ui.checkbox(&mut settings.graph.speed_mph, "Speed in mph (default kph)");
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Speed unit").size(11.0).color(LABEL_MID));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            egui::ComboBox::from_id_source("speed_unit")
+                .selected_text(if settings.graph.speed_mph { "mph" } else { "kph" })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut settings.graph.speed_mph, false, "kph");
+                    ui.selectable_value(&mut settings.graph.speed_mph, true, "mph");
+                });
+        });
+    });
     ui.add_space(4.0);
     slider_row(ui, "Opacity", &mut settings.overlay.opacity, 0.1..=1.0, "");
     ui.horizontal(|ui| {
