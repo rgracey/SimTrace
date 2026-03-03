@@ -217,7 +217,7 @@ fn render_overlay_viewport(
         .with_position([settings.overlay.position_x, settings.overlay.position_y])
         .with_decorations(false)
         .with_transparent(true)
-        .with_active(is_open);
+        .with_visible(is_open);
 
     ctx.show_viewport_immediate(overlay_viewport_id(), viewport_builder, |ctx, _class| {
         // Only render if the viewport is active/open
