@@ -429,6 +429,7 @@ fn draw_telemetry(
         ];
 
         let label_h = 16.0_f32;
+        let bar_labels = ["C", "B", "T"];
         for (i, (value, color)) in specs.iter().enumerate() {
             let x = bars_rect.min.x + i as f32 * (bar_w + bar_gap);
             let top = bars_rect.min.y + label_h + 2.0;
@@ -473,6 +474,15 @@ fn draw_telemetry(
                     egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), a),
                 );
             }
+
+            // C / B / T label at bottom of bar
+            p.text(
+                egui::pos2(x + bar_w / 2.0, bottom - 7.0),
+                egui::Align2::CENTER_CENTER,
+                bar_labels[i],
+                egui::FontId::monospace(8.0),
+                with_alpha(LABEL_DIM, a),
+            );
         }
 
         // Gap between bars and steering wheel
