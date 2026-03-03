@@ -147,7 +147,7 @@ impl Default for AppSettings {
                 height: 400.0,
                 position_x: 100.0,
                 position_y: 100.0,
-                opacity: 0.95,
+                opacity: 1.0,
                 pinned: false,
             },
         }
