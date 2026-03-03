@@ -351,7 +351,7 @@ fn render_overlay_viewport(
     }
 
     let alpha = settings.overlay.opacity;
-    
+
     // Debug: log viewport creation
     tracing::info!(
         "Creating overlay viewport: pos=[{}, {}], size=[{}, {}]",
@@ -366,25 +366,39 @@ fn render_overlay_viewport(
         .with_title("SimTrace Overlay")
         .with_inner_size([settings.overlay.width, settings.overlay.height])
         .with_position([settings.overlay.position_x, settings.overlay.position_y])
-        .with_decorations(false)  // Borderless
-        .with_transparent(true)   // Transparent window
-        .with_visible(true)       // Always visible when is_open is true
-        .with_active(true)        // Activate the viewport
-        .with_always_on_top();    // Keep on top
+        .with_decorations(false) // Borderless
+        .with_transparent(true) // Transparent window
+        .with_visible(true) // Always visible when is_open is true
+        .with_active(true) // Activate the viewport
+        .with_always_on_top(); // Keep on top
 
     // Show the viewport - this creates a separate native window
     let viewport_id = overlay_viewport_id();
-    ctx.show_viewport_immediate(viewport_id, viewport_builder, |ctx, _class| {
+    ctx.show_viewport_immediate(viewport_id, viewport_builder, |ctx, class| {
         tracing::info!("Viewport callback entered");
-        
+
         // Set transparent visuals for this viewport
+        // This ensures panels and windows within the viewport are transparent
         ctx.set_visuals(egui::Visuals {
             panel_fill: egui::Color32::TRANSPARENT,
+            window_fill: egui::Color32::TRANSPARENT,
             ..egui::Visuals::dark()
         });
 
+        // Also set style to ensure no backgrounds
+        let mut style = (*ctx.style()).clone();
+        style.visuals.window_fill = egui::Color32::TRANSPARENT;
+        style.visuals.panel_fill = egui::Color32::TRANSPARENT;
+        style.visuals.window_shadow = egui::epaint::Shadow::NONE;
+        ctx.set_style(style);
+
+        // Use CentralPanel with transparent frame for the overlay content
         egui::CentralPanel::default()
-            .frame(egui::Frame::none().fill(egui::Color32::TRANSPARENT))
+            .frame(
+                egui::Frame::none()
+                    .fill(egui::Color32::TRANSPARENT)
+                    .shadow(egui::epaint::Shadow::NONE),
+            )
             .show(ctx, |ui| {
                 ui.vertical(|ui| {
                     // Add some padding
