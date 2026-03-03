@@ -62,8 +62,15 @@ impl<'a> TraceGraph<'a> {
 
         // Draw traces if we have data
         if let Some(buffer) = self.buffer {
-            let points = buffer.get_points();
+            let window_dur =
+                std::time::Duration::from_secs_f64(self.settings.window_seconds);
+            let points: Vec<TelemetryPoint> = buffer
+                .get_points()
+                .into_iter()
+                .filter(|p| p.captured_at.elapsed() <= window_dur)
+                .collect();
             if !points.is_empty() {
+                self.draw_clutch_trace(&painter, rect, &points);
                 self.draw_brake_trace(&painter, rect, &points);
                 self.draw_throttle_trace(&painter, rect, &points);
             }
@@ -101,8 +108,15 @@ impl<'a> TraceGraph<'a> {
 
         // Draw traces if we have a buffer
         if let Some(buffer) = self.buffer {
-            let points = buffer.get_points();
+            let window_dur =
+                std::time::Duration::from_secs_f64(self.settings.window_seconds);
+            let points: Vec<TelemetryPoint> = buffer
+                .get_points()
+                .into_iter()
+                .filter(|p| p.captured_at.elapsed() <= window_dur)
+                .collect();
             if !points.is_empty() {
+                self.draw_clutch_trace(&painter, rect, &points);
                 self.draw_brake_trace(&painter, rect, &points);
                 self.draw_throttle_trace(&painter, rect, &points);
             }
@@ -134,6 +148,25 @@ impl<'a> TraceGraph<'a> {
         for i in 0..=num_lines {
             let x = rect.min.x + (rect.width() * i as f32 / num_lines as f32);
             painter.line_segment([Pos2::new(x, rect.min.y), Pos2::new(x, rect.max.y)], stroke);
+        }
+    }
+
+    fn draw_clutch_trace(&self, painter: &egui::Painter, rect: Rect, points: &[TelemetryPoint]) {
+        let color = self.apply_opacity(&self.colors.clutch);
+        let stroke = Stroke::new(self.settings.line_width, color);
+
+        let line_points: Vec<Pos2> = points
+            .iter()
+            .enumerate()
+            .map(|(i, point)| {
+                let x = self.x_position(rect, i, points.len());
+                let y = self.y_position(rect, point.telemetry.clutch);
+                Pos2::new(x, y)
+            })
+            .collect();
+
+        if line_points.len() > 1 {
+            painter.add(egui::Shape::line(line_points, stroke));
         }
     }
 
@@ -213,7 +246,7 @@ impl<'a> TraceGraph<'a> {
             .linear_multiply(0.8);
 
         let legend_rect =
-            Rect::from_min_size(rect.min + Vec2::new(10.0, 10.0), Vec2::new(120.0, 70.0));
+            Rect::from_min_size(rect.min + Vec2::new(10.0, 10.0), Vec2::new(120.0, 90.0));
 
         painter.rect_filled(legend_rect, 4.0, legend_bg);
 
@@ -264,6 +297,23 @@ impl<'a> TraceGraph<'a> {
             Pos2::new(legend_rect.min.x + 35.0, legend_rect.min.y + 50.0),
             egui::Align2::LEFT_BOTTOM,
             "ABS",
+            egui::FontId::proportional(12.0),
+            text_color,
+        );
+
+        // Clutch
+        let clutch_color = self.apply_opacity(&self.colors.clutch);
+        painter.line_segment(
+            [
+                Pos2::new(legend_rect.min.x + 5.0, legend_rect.min.y + 75.0),
+                Pos2::new(legend_rect.min.x + 30.0, legend_rect.min.y + 75.0),
+            ],
+            Stroke::new(2.0, clutch_color),
+        );
+        painter.text(
+            Pos2::new(legend_rect.min.x + 35.0, legend_rect.min.y + 70.0),
+            egui::Align2::LEFT_BOTTOM,
+            "Clutch",
             egui::FontId::proportional(12.0),
             text_color,
         );
