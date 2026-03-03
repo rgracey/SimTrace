@@ -62,8 +62,8 @@ impl<'a> TraceGraph<'a> {
         if let Some(buffer) = self.buffer {
             let points = buffer.get_points();
             if !points.is_empty() {
-                self.draw_throttle_trace(&painter, rect, &points);
                 self.draw_brake_trace(&painter, rect, &points);
+                self.draw_throttle_trace(&painter, rect, &points);
             }
         }
 
@@ -101,8 +101,8 @@ impl<'a> TraceGraph<'a> {
         if let Some(buffer) = self.buffer {
             let points = buffer.get_points();
             if !points.is_empty() {
-                self.draw_throttle_trace(&painter, rect, &points);
                 self.draw_brake_trace(&painter, rect, &points);
+                self.draw_throttle_trace(&painter, rect, &points);
             }
         }
 
