@@ -111,7 +111,7 @@ impl eframe::App for SimTraceApp {
                 let opacity  = self.settings.overlay.opacity;
                 let a        = (opacity * 255.0) as u8;
                 let bar_h    = 26.0_f32;
-                let pad      = 6.0_f32;
+                let pad      = 2.0_f32;
 
                 // ── Hover detection + bar fade ───────────────────────────────
                 let hovered = ctx.input(|i| {
@@ -206,7 +206,7 @@ impl eframe::App for SimTraceApp {
 
                 if self.running {
                     let mut content_ui = ui.child_ui(
-                        content_rect.shrink(4.0),
+                        content_rect.shrink(2.0),
                         egui::Layout::top_down(egui::Align::LEFT),
                         None,
                     );
@@ -267,29 +267,26 @@ fn draw_telemetry(
     let gear     = latest.as_ref().map(|p| p.telemetry.gear).unwrap_or(0);
     let speed_ms = latest.as_ref().map(|p| p.telemetry.speed).unwrap_or(0.0);
 
-    let bar_w    = 16.0_f32;
-    let bar_gap  = 4.0_f32;
-    let bar_pad  = 10.0_f32;
-    let bars_col_w = bar_w * 3.0 + bar_gap * 2.0 + bar_pad * 2.0;
+    let bar_w      = 20.0_f32;
+    let bar_gap    = 4.0_f32;
+    let bars_col_w = bar_w * 3.0 + bar_gap * 2.0;
+    let gap        = 8.0_f32; // equal spacing between graph↔bars and bars↔wheel
 
     // Wheel column matches the stadium cap exactly (cap_r from content_rect, minus shrink)
-    let wheel_col_w = (cap_r - 4.0) * 2.0;
-    let graph_w     = (available.width() - bars_col_w - wheel_col_w - 16.0).max(40.0);
-    let graph_h     = (available.height() - 20.0).max(30.0);
+    let wheel_col_w = (cap_r - 2.0) * 2.0;
+    let graph_w     = (available.width() - bars_col_w - wheel_col_w - gap * 2.0).max(40.0);
+    let graph_h     = available.height();
 
+    ui.spacing_mut().item_spacing.x = 0.0;
     ui.horizontal(|ui| {
         // ── Trace graph ──────────────────────────────────────────────────────
-        ui.vertical(|ui| {
-            crate::renderer::TraceGraph::new_simple(
-                buffer.map(|v| &**v), &settings.graph, &settings.colors, opacity,
-            )
-            .show_simple(ui, egui::vec2(graph_w, graph_h));
+        crate::renderer::TraceGraph::new_simple(
+            buffer.map(|v| &**v), &settings.graph, &settings.colors, opacity,
+        )
+        .show_simple(ui, egui::vec2(graph_w, graph_h));
 
-            ui.label(
-                egui::RichText::new(format!("{:.0}s", settings.graph.window_seconds))
-                    .size(9.0).color(with_alpha(LABEL_DIM, a)),
-            );
-        });
+        // Gap between graph and bars
+        ui.allocate_exact_size(egui::vec2(gap, available.height()), egui::Sense::hover());
 
         // ── Pedal bars ───────────────────────────────────────────────────────
         let (bars_rect, _) = ui.allocate_exact_size(
@@ -303,17 +300,17 @@ fn draw_telemetry(
             AppSettings::parse_color(&settings.colors.brake)
         };
 
-        let specs: &[(f32, egui::Color32, &str)] = &[
-            (clutch,   AppSettings::parse_color(&settings.colors.clutch),   "C"),
-            (brake,    brake_color,                                          "B"),
-            (throttle, AppSettings::parse_color(&settings.colors.throttle), "T"),
+        let specs: &[(f32, egui::Color32)] = &[
+            (clutch,   AppSettings::parse_color(&settings.colors.clutch)),
+            (brake,    brake_color),
+            (throttle, AppSettings::parse_color(&settings.colors.throttle)),
         ];
 
-        for (i, (value, color, label)) in specs.iter().enumerate() {
-            let x       = bars_rect.min.x + bar_pad + i as f32 * (bar_w + bar_gap);
-            let top     = bars_rect.min.y + 4.0;
-            let bottom  = bars_rect.max.y - 16.0;
-            let h       = bottom - top;
+        for (i, (value, color)) in specs.iter().enumerate() {
+            let x      = bars_rect.min.x + i as f32 * (bar_w + bar_gap);
+            let top    = bars_rect.min.y + 4.0;
+            let bottom = bars_rect.max.y - 4.0;
+            let h      = bottom - top;
 
             let track = egui::Rect::from_min_size(egui::pos2(x, top), egui::vec2(bar_w, h));
 
@@ -340,18 +337,10 @@ fn draw_telemetry(
                     egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), a),
                 );
             }
-
-            // Label — use the channel colour, dimmed
-            p.text(
-                egui::pos2(x + bar_w * 0.5, bars_rect.max.y - 2.0),
-                egui::Align2::CENTER_BOTTOM,
-                *label,
-                egui::FontId::monospace(8.0),
-                egui::Color32::from_rgba_unmultiplied(
-                    color.r() / 2 + 40, color.g() / 2 + 40, color.b() / 2 + 40, a,
-                ),
-            );
         }
+
+        // Gap between bars and steering wheel
+        ui.allocate_exact_size(egui::vec2(gap, available.height()), egui::Sense::hover());
 
         // ── Steering wheel ───────────────────────────────────────────────────
         let (wheel_rect, _) = ui.allocate_exact_size(
@@ -405,14 +394,6 @@ fn draw_telemetry(
             with_alpha(LABEL_MID, a),
         );
 
-        // Steering angle below the wheel
-        ui.painter().text(
-            egui::pos2(center.x, wheel_rect.max.y - 2.0),
-            egui::Align2::CENTER_BOTTOM,
-            format!("{:.0}°", current_steering),
-            egui::FontId::monospace(9.0),
-            with_alpha(LABEL_DIM, a),
-        );
     });
 }
 
