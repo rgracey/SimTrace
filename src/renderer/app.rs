@@ -452,11 +452,8 @@ fn draw_config(ui: &mut egui::Ui, settings: &mut AppSettings, running: &mut bool
         } else {
             (egui::Color32::from_gray(60), "STOPPED")
         };
-        let dot_pos = ui.next_widget_position() + egui::vec2(5.0, 8.0);
-        ui.add_space(14.0);
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(0.0, 16.0), egui::Sense::hover());
-        ui.painter().circle_filled(dot_pos, 4.0, dot_color);
-        let _ = rect;
+        let (dot_rect, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
+        ui.painter().circle_filled(dot_rect.center(), 4.0, dot_color);
         ui.label(
             egui::RichText::new(status_text)
                 .size(10.0).monospace()
