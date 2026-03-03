@@ -43,10 +43,14 @@ impl MockPlugin {
         let abs_active = brake > 0.6;
         let rpm = 8000.0 + throttle * 2000.0;
 
+        // Clutch: brief pulses during braking, simulating downshifts
+        let clutch_pulse = ((self.simulation_time * 2.5).sin() + 1.0) * 0.5;
+        let clutch = if brake > 0.1 { clutch_pulse * 0.85 } else { 0.0 };
+
         VehicleTelemetry {
             throttle: throttle.clamp(0.0, 1.0),
             brake: brake.clamp(0.0, 1.0),
-            clutch: 0.0,
+            clutch: clutch.clamp(0.0, 1.0),
             steering_angle,
             speed: speed / 3.6,
             gear: if speed < 5.0 { 1 } else { 3 },
