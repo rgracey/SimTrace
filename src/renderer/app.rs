@@ -333,76 +333,62 @@ fn render_overlay_viewport(
             return;
         }
 
-        // Configure the overlay viewport with transparent background
-        // The window itself is fully transparent, we'll add a semi-transparent panel
+        // Configure the overlay viewport with fully transparent background
         ctx.set_visuals(egui::Visuals {
             panel_fill: egui::Color32::TRANSPARENT,
             ..egui::Visuals::dark()
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            // Add a semi-transparent background panel for the widget content
-            let bg_color = egui::Color32::from_black_alpha((alpha * 255.0) as u8);
+            ui.with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
+                // Add some padding
+                ui.add_space(8.0);
 
-            ui.allocate_ui(ui.available_size(), |ui| {
-                // Paint the semi-transparent background
-                let rect = ui.available_rect_before_wrap();
-                ui.painter().rect_filled(rect, 0.0, bg_color);
+                // Drag handle area
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("☰").small().weak());
+                    ui.label(egui::RichText::new("🏁 SimTrace").small());
+                });
+                ui.add_space(4.0);
 
-                // Now add content on top (fully visible)
-                ui.with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
-                    // Add some padding
-                    ui.add_space(8.0);
+                // Trace graph with adjustable transparency
+                let graph_size = ui.available_size_before_wrap();
+                let graph_height = (graph_size.y * 0.6).max(100.0);
+                let graph_size = egui::Vec2::new(graph_size.x, graph_height);
 
-                    // Drag handle area
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("☰").small().weak());
-                        ui.label(egui::RichText::new("🏁 SimTrace").small());
-                    });
-                    ui.add_space(4.0);
+                crate::renderer::TraceGraph::new_simple(
+                    buffer.map(|v| &**v),
+                    &settings.graph,
+                    &settings.colors,
+                    alpha, // Use opacity setting for graph background
+                )
+                .show_simple(ui, graph_size);
 
-                    // Trace graph - fully opaque for visibility
-                    let graph_size = ui.available_size_before_wrap();
-                    let graph_height = (graph_size.y * 0.6).max(100.0);
-                    let graph_size = egui::Vec2::new(graph_size.x, graph_height);
+                ui.add_space(8.0);
 
-                    crate::renderer::TraceGraph::new_simple(
-                        buffer.map(|v| &**v),
-                        &settings.graph,
-                        &settings.colors,
-                        1.0, // Full opacity for graph elements
-                    )
-                    .show_simple(ui, graph_size);
-
-                    ui.add_space(8.0);
-
-                    // Bottom row
-                    ui.horizontal(|ui| {
-                        // Steering wheel placeholder
-                        ui.vertical(|ui| {
-                            ui.label(egui::RichText::new("Steering").small().weak());
-                            ui.label(
-                                egui::RichText::new(format!("{:.0}°", current_steering))
-                                    .small()
-                                    .monospace(),
-                            );
-                        });
-
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(egui::RichText::new("Window").small().weak());
-                            ui.label(
-                                egui::RichText::new(format!(
-                                    "{:.1}s",
-                                    settings.graph.window_seconds
-                                ))
+                // Bottom row
+                ui.horizontal(|ui| {
+                    // Steering wheel placeholder
+                    ui.vertical(|ui| {
+                        ui.label(egui::RichText::new("Steering").small().weak());
+                        ui.label(
+                            egui::RichText::new(format!("{:.0}°", current_steering))
                                 .small()
                                 .monospace(),
-                            );
-                        });
+                        );
                     });
 
-                    ui.add_space(8.0);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(egui::RichText::new("Window").small().weak());
+                        ui.label(
+                            egui::RichText::new(format!("{:.1}s", settings.graph.window_seconds))
+                                .small()
+                                .monospace(),
+                        );
+                    });
                 });
+
+                ui.add_space(8.0);
             });
         });
     });
