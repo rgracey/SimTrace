@@ -77,7 +77,15 @@ impl<'a> TraceGraph<'a> {
 
     /// Render a simple trace graph (overlay version without buffer access)
     pub fn show_simple(&self, ui: &mut Ui, size: Vec2) -> Response {
-        let (rect, response) = ui.allocate_exact_size(size, egui::Sense::hover());
+        // Use empty Sense to prevent hover from triggering repaints
+        let (rect, response) = ui.allocate_exact_size(
+            size,
+            egui::Sense {
+                click: false,
+                drag: false,
+                focusable: false,
+            },
+        );
         let painter = ui.painter().with_clip_rect(rect);
 
         // Draw background with opacity
