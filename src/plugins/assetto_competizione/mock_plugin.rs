@@ -1,7 +1,6 @@
 //! Mock ACC plugin for non-Windows platforms (development/testing)
 
 use anyhow::Result;
-use std::time::Duration;
 
 use crate::core::{TelemetryData, VehicleTelemetry};
 use crate::plugins::{GameConfig, GamePlugin};
@@ -26,8 +25,6 @@ impl AccPlugin {
 
     /// Generate simulated telemetry data
     fn generate_telemetry(&mut self) -> VehicleTelemetry {
-        use std::f32::consts::PI;
-
         // Simulate a simple cornering scenario
         let elapsed = if let Some(last) = self.last_update {
             std::time::Instant::now().duration_since(last).as_secs_f32()
@@ -105,7 +102,7 @@ impl GamePlugin for AccPlugin {
         }
 
         let telemetry = self.generate_telemetry();
-        let abs_active = telemetry.abs_active;
+        let _abs_active = telemetry.abs_active; // Used by collector for ABS coloring
 
         Ok(Some(TelemetryData {
             timestamp: (self.simulation_time * 1000.0) as u64,

@@ -87,7 +87,7 @@ pub struct OverlaySettings {
     pub position_x: f32,
     /// Window position y (screen coordinates)
     pub position_y: f32,
-    /// Opacity (0.0 to 1.0)
+    /// Transparency/opacity of the graph widget (0.0 to 1.0)
     pub opacity: f32,
     /// Whether the widget is pinned/visible
     pub pinned: bool,

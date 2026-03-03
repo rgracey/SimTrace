@@ -44,29 +44,40 @@ impl SimTraceApp {
     /// Toggle overlay viewport
     fn toggle_overlay(&mut self, _ctx: &egui::Context) {
         self.overlay_open = !self.overlay_open;
+        tracing::info!("Toggle overlay called, overlay_open={}", self.overlay_open);
 
         if self.overlay_open {
             // Create data collector if needed
             if self.collector.is_none() {
+                tracing::info!("Creating data collector...");
                 let collector_config = crate::core::collector::CollectorConfig {
                     update_rate_hz: self.settings.collector.update_rate_hz,
                     buffer_window_secs: self.settings.collector.buffer_window_secs.unwrap_or(10),
                 };
                 let collector = DataCollector::new(collector_config);
                 self.collector = Some(Arc::new(Mutex::new(collector)));
+                tracing::info!("Data collector created");
             }
 
-            // Activate the selected plugin
-            if let Some(ref collector) = self.collector {
-                if let Ok(mut c) = collector.lock() {
-                    let plugin_name = &self.settings.collector.plugin;
-                    if let Err(e) = c.activate_plugin(plugin_name) {
-                        tracing::error!("Failed to activate plugin '{}': {}", plugin_name, e);
-                    } else {
-                        tracing::info!("Activated plugin: {}", plugin_name);
+            // Activate the selected plugin - clone Arc to avoid borrow issues
+            if let Some(collector_clone) = self.collector.clone() {
+                let plugin_name = self.settings.collector.plugin.clone();
+                match collector_clone.lock() {
+                    Ok(mut c) => {
+                        tracing::info!("Activating plugin: {}", plugin_name);
+                        if let Err(e) = c.activate_plugin(&plugin_name) {
+                            tracing::error!("Failed to activate plugin '{}': {}", plugin_name, e);
+                        } else {
+                            tracing::info!("Plugin activated successfully: {}", plugin_name);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to lock collector: {}", e);
                     }
                 }
             }
+        } else {
+            tracing::info!("Overlay hidden");
         }
     }
 
@@ -111,6 +122,7 @@ impl eframe::App for SimTraceApp {
             .collector
             .as_ref()
             .and_then(|c| c.lock().ok().map(|c| c.buffer()));
+
         render_overlay_viewport(
             ctx,
             &self.settings,
@@ -203,25 +215,41 @@ impl eframe::App for SimTraceApp {
                                                     Some(Arc::new(Mutex::new(collector)));
                                             }
 
-                                            if let Some(ref collector) = self.collector {
-                                                if let Ok(mut c) = collector.lock() {
-                                                    if let Err(e) = c.activate_plugin(plugin) {
+                                            // Clone Arc to avoid borrow issues
+                                            if let Some(collector_clone) = self.collector.clone() {
+                                                let plugin_clone = plugin.clone();
+                                                match collector_clone.lock() {
+                                                    Ok(mut c) => {
+                                                        if let Err(e) =
+                                                            c.activate_plugin(&plugin_clone)
+                                                        {
+                                                            ui.label(
+                                                                egui::RichText::new(format!(
+                                                                    "Error: {}",
+                                                                    e
+                                                                ))
+                                                                .small()
+                                                                .color(egui::Color32::RED),
+                                                            );
+                                                        } else {
+                                                            ui.label(
+                                                                egui::RichText::new(format!(
+                                                                    "✓ {} started!",
+                                                                    display_name
+                                                                ))
+                                                                .small()
+                                                                .color(egui::Color32::GREEN),
+                                                            );
+                                                        }
+                                                    }
+                                                    Err(e) => {
                                                         ui.label(
                                                             egui::RichText::new(format!(
-                                                                "Error: {}",
+                                                                "Lock error: {}",
                                                                 e
                                                             ))
                                                             .small()
                                                             .color(egui::Color32::RED),
-                                                        );
-                                                    } else {
-                                                        ui.label(
-                                                            egui::RichText::new(format!(
-                                                                "✓ {} started!",
-                                                                display_name
-                                                            ))
-                                                            .small()
-                                                            .color(egui::Color32::GREEN),
                                                         );
                                                     }
                                                 }
@@ -325,7 +353,8 @@ fn render_overlay_viewport(
         .with_position([settings.overlay.position_x, settings.overlay.position_y])
         .with_decorations(false)
         .with_transparent(true)
-        .with_visible(is_open);
+        .with_visible(is_open)
+        .with_active(true);
 
     ctx.show_viewport_immediate(overlay_viewport_id(), viewport_builder, |ctx, _class| {
         // Only render if the viewport is active/open
@@ -333,64 +362,69 @@ fn render_overlay_viewport(
             return;
         }
 
-        // Configure the overlay viewport with fully transparent background
+        // Set the background to transparent for this viewport
         ctx.set_visuals(egui::Visuals {
             panel_fill: egui::Color32::TRANSPARENT,
             ..egui::Visuals::dark()
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
-                // Add some padding
-                ui.add_space(8.0);
+        egui::CentralPanel::default()
+            .frame(egui::Frame::none().fill(egui::Color32::TRANSPARENT))
+            .show(ctx, |ui| {
+                ui.with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
+                    // Add some padding
+                    ui.add_space(8.0);
 
-                // Drag handle area
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("☰").small().weak());
-                    ui.label(egui::RichText::new("🏁 SimTrace").small());
-                });
-                ui.add_space(4.0);
+                    // Drag handle area
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("☰").small().weak());
+                        ui.label(egui::RichText::new("🏁 SimTrace").small());
+                    });
+                    ui.add_space(4.0);
 
-                // Trace graph with adjustable transparency
-                let graph_size = ui.available_size_before_wrap();
-                let graph_height = (graph_size.y * 0.6).max(100.0);
-                let graph_size = egui::Vec2::new(graph_size.x, graph_height);
+                    // Trace graph with adjustable transparency - use explicit size
+                    let graph_width = settings.overlay.width - 16.0; // Account for padding
+                    let graph_height = settings.overlay.height * 0.6;
+                    let graph_size = egui::Vec2::new(graph_width, graph_height);
 
-                crate::renderer::TraceGraph::new_simple(
-                    buffer.map(|v| &**v),
-                    &settings.graph,
-                    &settings.colors,
-                    alpha, // Use opacity setting for graph background
-                )
-                .show_simple(ui, graph_size);
+                    crate::renderer::TraceGraph::new_simple(
+                        buffer.map(|v| &**v),
+                        &settings.graph,
+                        &settings.colors,
+                        alpha, // Use opacity setting for graph background
+                    )
+                    .show_simple(ui, graph_size);
 
-                ui.add_space(8.0);
+                    ui.add_space(8.0);
 
-                // Bottom row
-                ui.horizontal(|ui| {
-                    // Steering wheel placeholder
-                    ui.vertical(|ui| {
-                        ui.label(egui::RichText::new("Steering").small().weak());
-                        ui.label(
-                            egui::RichText::new(format!("{:.0}°", current_steering))
+                    // Bottom row
+                    ui.horizontal(|ui| {
+                        // Steering wheel placeholder
+                        ui.vertical(|ui| {
+                            ui.label(egui::RichText::new("Steering").small().weak());
+                            ui.label(
+                                egui::RichText::new(format!("{:.0}°", current_steering))
+                                    .small()
+                                    .monospace(),
+                            );
+                        });
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(egui::RichText::new("Window").small().weak());
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "{:.1}s",
+                                    settings.graph.window_seconds
+                                ))
                                 .small()
                                 .monospace(),
-                        );
+                            );
+                        });
                     });
 
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(egui::RichText::new("Window").small().weak());
-                        ui.label(
-                            egui::RichText::new(format!("{:.1}s", settings.graph.window_seconds))
-                                .small()
-                                .monospace(),
-                        );
-                    });
+                    ui.add_space(8.0);
                 });
-
-                ui.add_space(8.0);
             });
-        });
     });
 }
 

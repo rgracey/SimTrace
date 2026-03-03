@@ -88,11 +88,11 @@ impl<'a> TraceGraph<'a> {
         );
         let painter = ui.painter().with_clip_rect(rect);
 
-        // Draw background with opacity
+        // Draw semi-transparent background based on opacity setting
         let bg_color = self.apply_opacity(&self.colors.background);
         painter.rect_filled(rect, 0.0, bg_color);
 
-        // Draw grid with opacity
+        // Draw grid with opacity (optional)
         if self.settings.show_grid {
             self.draw_grid(&painter, rect);
         }
@@ -106,7 +106,7 @@ impl<'a> TraceGraph<'a> {
             }
         }
 
-        // Draw legend
+        // Draw legend (optional)
         if self.settings.show_legend {
             self.draw_legend(&painter, rect);
         }
