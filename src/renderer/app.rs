@@ -392,6 +392,12 @@ fn draw_telemetry(
     let graph_w = (available.width() - bars_col_w - wheel_col_w - gap * 2.0).max(40.0);
     let graph_h = available.height();
 
+    // No data arriving? Show overlay on graph area.
+    let is_waiting = latest
+        .as_ref()
+        .map_or(true, |p| p.captured_at.elapsed().as_secs_f32() > 2.0);
+    let graph_rect = egui::Rect::from_min_size(available.min, egui::vec2(graph_w, graph_h));
+
     ui.spacing_mut().item_spacing.x = 0.0;
     ui.horizontal(|ui| {
         // ── Trace graph ──────────────────────────────────────────────────────
@@ -488,7 +494,7 @@ fn draw_telemetry(
         // Gap between bars and steering wheel
         ui.allocate_exact_size(egui::vec2(gap, available.height()), egui::Sense::hover());
 
-        // ── Steering wheel ───────────────────────────────────────────────────
+        // ── Steering wheel ──────────────────────────────────────────────────
         let (wheel_rect, _) = ui.allocate_exact_size(
             egui::vec2(wheel_col_w, available.height()),
             egui::Sense::hover(),
@@ -558,6 +564,16 @@ fn draw_telemetry(
             with_alpha(LABEL_MID, a),
         );
     });
+
+    if is_waiting {
+        ui.painter().text(
+            graph_rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "Waiting for game…",
+            egui::FontId::monospace(11.0),
+            with_alpha(LABEL_DIM, a),
+        );
+    }
 }
 
 // ── Config panel ─────────────────────────────────────────────────────────────
