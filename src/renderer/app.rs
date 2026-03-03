@@ -86,10 +86,20 @@ impl eframe::App for SimTraceApp {
             }
         }
 
+        // Request repaint at configured FPS
+        let fps = self.settings.graph.overlay_fps;
+        let interval = std::time::Duration::from_secs_f64(1.0 / fps as f64);
+        ctx.request_repaint_after(interval);
+
         // Always render overlay viewport to keep it alive, but hide when closed
+        let buffer = self
+            .collector
+            .as_ref()
+            .and_then(|c| c.lock().ok().map(|c| c.buffer()));
         render_overlay_viewport(
             ctx,
             &self.settings,
+            buffer.as_ref(),
             self.current_steering,
             self.current_abs_active,
             self.overlay_open,
@@ -135,6 +145,43 @@ impl eframe::App for SimTraceApp {
                         }
                     });
 
+                    // Test plugin button
+                    ui.horizontal(|ui| {
+                        if ui.button("🎮 Start Test Plugin").clicked() {
+                            if self.collector.is_none() {
+                                // Create collector if needed
+                                let collector_config = crate::core::collector::CollectorConfig {
+                                    update_rate_hz: self.settings.collector.update_rate_hz,
+                                    buffer_window_secs: self
+                                        .settings
+                                        .collector
+                                        .buffer_window_secs
+                                        .unwrap_or(10),
+                                };
+                                let collector = DataCollector::new(collector_config);
+                                self.collector = Some(Arc::new(Mutex::new(collector)));
+                            }
+
+                            if let Some(ref collector) = self.collector {
+                                if let Ok(mut c) = collector.lock() {
+                                    if let Err(e) = c.activate_plugin("test") {
+                                        ui.label(
+                                            egui::RichText::new(format!("Error: {}", e))
+                                                .small()
+                                                .color(egui::Color32::RED),
+                                        );
+                                    } else {
+                                        ui.label(
+                                            egui::RichText::new("✓ Test plugin started!")
+                                                .small()
+                                                .color(egui::Color32::GREEN),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    });
+
                     ui.add_space(10.0);
                     ui.separator();
 
@@ -172,6 +219,15 @@ impl eframe::App for SimTraceApp {
                                 .suffix("s"),
                         );
                     });
+
+                    ui.add_space(5.0);
+                    ui.label("Overlay FPS");
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::Slider::new(&mut self.settings.graph.overlay_fps, 10..=120)
+                                .suffix(" fps"),
+                        );
+                    });
                 });
             });
     }
@@ -207,6 +263,7 @@ fn overlay_viewport_id() -> egui::ViewportId {
 fn render_overlay_viewport(
     ctx: &egui::Context,
     settings: &AppSettings,
+    buffer: Option<&std::sync::Arc<crate::core::TelemetryBuffer>>,
     current_steering: f32,
     _current_abs_active: bool,
     is_open: bool,
@@ -258,8 +315,13 @@ fn render_overlay_viewport(
                 let graph_height = (graph_size.y * 0.6).max(100.0);
                 let graph_size = egui::Vec2::new(graph_size.x, graph_height);
 
-                crate::renderer::TraceGraph::new_simple(&settings.graph, &settings.colors)
-                    .show_simple(ui, graph_size);
+                crate::renderer::TraceGraph::new_simple(
+                    buffer.map(|v| &**v),
+                    &settings.graph,
+                    &settings.colors,
+                    alpha,
+                )
+                .show_simple(ui, graph_size);
 
                 ui.add_space(8.0);
 

@@ -29,10 +29,15 @@ impl<'a> TraceGraph<'a> {
         }
     }
 
-    /// Create a simple trace graph renderer (no buffer, for overlay preview)
-    pub fn new_simple(settings: &'a GraphSettings, colors: &'a ColorScheme, opacity: f32) -> Self {
+    /// Create a simple trace graph renderer (with optional buffer)
+    pub fn new_simple(
+        buffer: Option<&'a TelemetryBuffer>,
+        settings: &'a GraphSettings,
+        colors: &'a ColorScheme,
+        opacity: f32,
+    ) -> Self {
         Self {
-            buffer: None,
+            buffer,
             settings,
             colors,
             opacity,
@@ -82,6 +87,20 @@ impl<'a> TraceGraph<'a> {
         // Draw grid with opacity
         if self.settings.show_grid {
             self.draw_grid(&painter, rect);
+        }
+
+        // Draw traces if we have a buffer
+        if let Some(buffer) = self.buffer {
+            let points = buffer.get_points();
+            if !points.is_empty() {
+                self.draw_throttle_trace(&painter, rect, &points);
+                self.draw_brake_trace(&painter, rect, &points);
+            }
+        }
+
+        // Draw legend
+        if self.settings.show_legend {
+            self.draw_legend(&painter, rect);
         }
 
         response

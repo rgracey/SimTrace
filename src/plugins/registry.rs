@@ -24,11 +24,15 @@ impl PluginRegistry {
 
     /// Discover available plugins
     fn discover_plugins() -> Vec<String> {
-        let plugins = Vec::new();
+        let mut plugins = Vec::new();
 
         // ACC is available on Windows
         #[cfg(windows)]
         plugins.push("assetto_competizione".to_string());
+
+        // Test plugin for non-Windows development/testing
+        #[cfg(not(windows))]
+        plugins.push("test".to_string());
 
         // Add more plugins here as they're implemented
         plugins

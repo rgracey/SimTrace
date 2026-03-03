@@ -7,7 +7,7 @@ use crate::core::{TelemetryData, VehicleTelemetry};
 use crate::plugins::{GameConfig, GamePlugin};
 
 /// Mock ACC plugin that generates simulated telemetry
-/// Used for development on non-Windows platforms
+/// Used for development
 pub struct AccPlugin {
     connected: bool,
     simulation_time: f32,

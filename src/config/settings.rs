@@ -46,6 +46,13 @@ pub struct GraphSettings {
     pub show_grid: bool,
     pub show_legend: bool,
     pub line_width: f32,
+    /// Target FPS for the overlay visualization
+    #[serde(default = "default_overlay_fps")]
+    pub overlay_fps: u32,
+}
+
+fn default_overlay_fps() -> u32 {
+    60
 }
 
 /// Color scheme for visualization
@@ -107,6 +114,7 @@ impl Default for AppSettings {
                 show_grid: true,
                 show_legend: true,
                 line_width: 2.0,
+                overlay_fps: 60,
             },
             colors: ColorScheme {
                 throttle: "#00FF00".to_string(),

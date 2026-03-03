@@ -47,7 +47,8 @@ pub trait GamePlugin: Send + Sync {
 /// Helper function to create a plugin by name
 pub fn create_plugin(name: &str) -> Option<Box<dyn GamePlugin>> {
     match name.to_lowercase().as_str() {
-        "assetto corsa competizione" | "acc" => {
+        // Real ACC plugin (Windows only)
+        "assetto_competizione" | "assetto corsa competizione" | "acc" => {
             #[cfg(windows)]
             {
                 Some(Box::new(
@@ -56,10 +57,16 @@ pub fn create_plugin(name: &str) -> Option<Box<dyn GamePlugin>> {
             }
             #[cfg(not(windows))]
             {
-                // On non-Windows, ACC is not available
-                None
+                // On non-Windows, use mock
+                Some(Box::new(
+                    crate::plugins::assetto_competizione::AccPlugin::new(),
+                ))
             }
         }
+        // Test plugin for testing (non-Windows)
+        "test" => Some(Box::new(
+            crate::plugins::assetto_competizione::AccPlugin::new(),
+        )),
         _ => None,
     }
 }
