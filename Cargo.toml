@@ -1,0 +1,38 @@
+[package]
+name = "simtrace"
+version = "0.1.0"
+edition = "2021"
+description = "Sim racing telemetry visualization tool"
+authors = ["SimTrace Contributors"]
+
+[dependencies]
+# GUI
+eframe = "0.29"
+egui = "0.29"
+
+# Configuration
+toml = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+
+# Error handling
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Shared memory (Windows)
+[target.'cfg(windows)'.dependencies]
+memmap2 = "0.9"
+winapi = { version = "0.3", features = ["winnt", "handleapi", "memoryapi"] }
+
+# Cross-platform utilities
+parking_lot = "0.12"
+instant = "0.1"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "telemetry_buffer"
+harness = false
