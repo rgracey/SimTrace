@@ -79,15 +79,16 @@ The issue is that `with_transparent(true)` in eframe/egui:
 - Composite over desktop (complex, may not work)
 
 ## Current State
-**Latest Attempt (Option A - egui::Window in main viewport):**
-- Replaced separate viewport with a regular `egui::Window`
-- Manually draws semi-transparent background using `ui.painter().rect_filled()`
+**Latest Attempt (Viewport with manual background):**
+- Uses separate viewport (native window) with `with_transparent(true)`
+- Sets egui visuals to transparent (`panel_fill`, `window_fill`)
+- Draws semi-transparent background manually using `ui.painter().rect_filled()`
 - Window is borderless, always-on-top, resizable, and movable
 - The entire window background opacity is controlled by the slider
 
-**Status:** Code compiles successfully. The window should now be transparent with adjustable opacity.
+**Status:** Code compiles successfully. This should create a true separate native window that can float above other applications.
 
-**Limitation:** This is NOT a separate native window - it's a window within the main egui viewport. This means it won't float above other applications like a true overlay would.
+**Key difference from previous attempt:** Now using viewport instead of regular Window, which creates a separate native window.
 
 ## Trade-offs
 - **Separate viewport approach:** Creates a true native window that can float above games, but transparency is unreliable
