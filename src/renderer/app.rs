@@ -518,12 +518,6 @@ fn draw_config(ui: &mut egui::Ui, settings: &mut AppSettings, running: &mut bool
     });
     ui.add_space(4.0);
     slider_row(ui, "Opacity", &mut settings.overlay.opacity, 0.1..=1.0, "");
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Window").size(11.0).color(LABEL_MID));
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.add(egui::Slider::new(&mut settings.graph.window_seconds, 2.0..=30.0).suffix("s").show_value(true));
-        });
-    });
     slider_row_int(ui, "FPS", &mut settings.graph.overlay_fps, 10..=120, " fps");
 
     // ── Colours ──────────────────────────────────────────────────────────────
