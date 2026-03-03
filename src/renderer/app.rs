@@ -51,7 +51,8 @@ impl SimTraceApp {
         if self.collector.is_none() {
             let cfg = crate::core::collector::CollectorConfig {
                 update_rate_hz: self.settings.collector.update_rate_hz,
-                buffer_window_secs: self.settings.collector.buffer_window_secs.unwrap_or(10),
+                // Hold 60s so the display window slider (max 30s) always has enough data
+                buffer_window_secs: 60,
             };
             self.collector = Some(Arc::new(Mutex::new(DataCollector::new(cfg))));
         }
@@ -621,6 +622,18 @@ fn draw_config(ui: &mut egui::Ui, settings: &mut AppSettings, running: &mut bool
     ui.add_space(4.0);
     slider_row(ui, "Opacity", &mut settings.overlay.opacity, 0.1..=1.0, "");
     slider_row_int(ui, "FPS", &mut settings.graph.overlay_fps, 10..=120, " fps");
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Time window").size(11.0).color(LABEL_MID));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let mut w = settings.graph.window_seconds as f32;
+            if ui
+                .add(egui::Slider::new(&mut w, 3.0..=30.0).suffix(" s").show_value(true))
+                .changed()
+            {
+                settings.graph.window_seconds = w as f64;
+            }
+        });
+    });
 
     // ── Colours ──────────────────────────────────────────────────────────────
     section_header(ui, "COLOURS");
