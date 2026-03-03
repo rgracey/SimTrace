@@ -275,8 +275,9 @@ impl<'a> TraceGraph<'a> {
     }
 
     fn y_position(&self, rect: Rect, value: f32) -> f32 {
-        // Invert Y (0 = bottom, 1 = top)
-        rect.max.y - (rect.height() * value)
+        // Invert Y (0 = bottom, 1 = top) with vertical padding so 100% doesn't clip
+        let pad = rect.height() * 0.03;
+        rect.max.y - pad - ((rect.height() - 1.15 * pad) * value)
     }
 
     /// Apply opacity to a color
