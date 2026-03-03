@@ -172,9 +172,30 @@ impl eframe::App for SimTraceApp {
                     );
                 }
 
-                // Gear button — right side
+                // Close (✕) button — far right
+                let close_rect = egui::Rect::from_center_size(
+                    egui::pos2(bar_rect.max.x - 14.0, bar_rect.center().y),
+                    egui::vec2(22.0, 22.0),
+                );
+                let close_resp = ui.allocate_rect(close_rect, egui::Sense::click());
+                if close_resp.hovered() {
+                    ui.painter().rect_filled(
+                        close_rect, 4.0,
+                        egui::Color32::from_rgba_unmultiplied(80, 30, 30, ba),
+                    );
+                }
+                ui.painter().text(
+                    close_rect.center(), egui::Align2::CENTER_CENTER,
+                    "×", egui::FontId::proportional(14.0),
+                    with_alpha(LABEL_MID, ba),
+                );
+                if close_resp.clicked() {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+
+                // Gear button — left of close button
                 let gear_rect = egui::Rect::from_center_size(
-                    egui::pos2(bar_rect.max.x - 16.0, bar_rect.center().y),
+                    egui::pos2(bar_rect.max.x - 40.0, bar_rect.center().y),
                     egui::vec2(22.0, 22.0),
                 );
                 let gear_resp = ui.allocate_rect(gear_rect, egui::Sense::click());
@@ -268,9 +289,7 @@ impl eframe::App for SimTraceApp {
                         None,
                     );
                     egui::ScrollArea::vertical().show(&mut child, |ui| {
-                        if draw_config(ui, &mut self.settings, &mut self.running) {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                        }
+                        draw_config(ui, &mut self.settings, &mut self.running);
                     });
                     if self.running && self.collector.is_none() { self.start(); }
                 }
@@ -441,7 +460,7 @@ fn draw_telemetry(
 
 // ── Config panel ─────────────────────────────────────────────────────────────
 
-fn draw_config(ui: &mut egui::Ui, settings: &mut AppSettings, running: &mut bool) -> bool {
+fn draw_config(ui: &mut egui::Ui, settings: &mut AppSettings, running: &mut bool) {
     // Force readable text on dark panel
     ui.visuals_mut().override_text_color = Some(egui::Color32::from_gray(210));
 
@@ -471,18 +490,6 @@ fn draw_config(ui: &mut egui::Ui, settings: &mut AppSettings, running: &mut bool
             if let Err(e) = save_settings(settings) { tracing::error!("{e}"); }
         }
     });
-    ui.add_space(2.0);
-    let mut quit = false;
-    if ui.add(
-        egui::Button::new(
-            egui::RichText::new("Quit")
-                .size(11.0)
-                .color(egui::Color32::from_rgb(180, 60, 60))
-        )
-        .min_size(egui::vec2(ui.available_width(), 0.0))
-        .fill(egui::Color32::from_rgb(35, 18, 18))
-    ).clicked() { quit = true; }
-
     // ── Game ─────────────────────────────────────────────────────────────────
     section_header(ui, "GAME");
     egui::ComboBox::from_id_source("plugin")
@@ -527,8 +534,6 @@ fn draw_config(ui: &mut egui::Ui, settings: &mut AppSettings, running: &mut bool
     color_row(ui, "Brake",    &mut settings.colors.brake);
     color_row(ui, "ABS",      &mut settings.colors.abs_active);
     color_row(ui, "Clutch",   &mut settings.colors.clutch);
-
-    quit
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
