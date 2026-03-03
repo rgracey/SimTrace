@@ -147,52 +147,52 @@ impl eframe::App for SimTraceApp {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                // Left: Trace graph
-                ui.vertical(|ui| {
-                    ui.label("Telemetry Trace");
-                    let graph_size = ui.available_size_before_wrap();
-                    let graph_size = egui::Vec2::new(
-                        graph_size.x,
-                        graph_size.y - 100.0, // Leave room for steering wheel
-                    );
+            ui.vertical(|ui| {
+                // Top: Trace graph
+                ui.label("Telemetry Trace");
+                let graph_size = ui.available_size_before_wrap();
+                let graph_size = egui::Vec2::new(graph_size.x, 300.0);
 
-                    TraceGraph::new(
-                        &self.collector.buffer(),
-                        &self.settings.graph,
-                        &self.settings.colors,
-                    )
-                    .show(ui, graph_size);
-                });
+                TraceGraph::new(
+                    &self.collector.buffer(),
+                    &self.settings.graph,
+                    &self.settings.colors,
+                )
+                .show(ui, graph_size);
 
-                // Right: Steering wheel
-                ui.vertical(|ui| {
-                    ui.label("Steering");
-                    let wheel_size = egui::Vec2::new(250.0, 250.0);
-                    let max_angle = self
-                        .collector
-                        .active_plugin()
-                        .map(|p: &dyn GamePlugin| p.get_config().max_steering_angle)
-                        .unwrap_or(900.0);
+                // Bottom: Steering wheel and current values
+                ui.horizontal(|ui| {
+                    // Steering wheel
+                    ui.vertical(|ui| {
+                        ui.label("Steering");
+                        let wheel_size = egui::Vec2::new(250.0, 250.0);
+                        let max_angle = self
+                            .collector
+                            .active_plugin()
+                            .map(|p: &dyn GamePlugin| p.get_config().max_steering_angle)
+                            .unwrap_or(900.0);
 
-                    SteeringWheel::new(&self.settings.steering_wheel, max_angle).show(
-                        ui,
-                        self.current_steering,
-                        wheel_size,
-                    );
+                        SteeringWheel::new(&self.settings.steering_wheel, max_angle).show(
+                            ui,
+                            self.current_steering,
+                            wheel_size,
+                        );
+                    });
 
                     // Current values
-                    ui.separator();
-                    ui.vertical_centered(|ui| {
-                        ui.label(format!("Steering: {:.0}°", self.current_steering));
-                        ui.label(format!(
-                            "ABS: {}",
-                            if self.current_abs_active {
-                                "ACTIVE"
-                            } else {
-                                "OFF"
-                            }
-                        ));
+                    ui.vertical(|ui| {
+                        ui.separator();
+                        ui.vertical_centered(|ui| {
+                            ui.label(format!("Steering: {:.0}°", self.current_steering));
+                            ui.label(format!(
+                                "ABS: {}",
+                                if self.current_abs_active {
+                                    "ACTIVE"
+                                } else {
+                                    "OFF"
+                                }
+                            ));
+                        });
                     });
                 });
             });
