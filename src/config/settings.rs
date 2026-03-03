@@ -61,9 +61,15 @@ pub struct ColorScheme {
     pub throttle: String,
     pub brake: String,
     pub abs_active: String,
+    #[serde(default = "default_clutch_color")]
+    pub clutch: String,
     pub background: String,
     pub grid: String,
     pub text: String,
+}
+
+fn default_clutch_color() -> String {
+    "#AA44FF".to_string()
 }
 
 /// Steering wheel visualization settings
@@ -120,6 +126,7 @@ impl Default for AppSettings {
                 throttle: "#00FF00".to_string(),
                 brake: "#FF0000".to_string(),
                 abs_active: "#FFA500".to_string(),
+                clutch: "#AA44FF".to_string(),
                 background: "#1A1A1A".to_string(),
                 grid: "#333333".to_string(),
                 text: "#FFFFFF".to_string(),

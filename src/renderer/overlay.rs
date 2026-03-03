@@ -125,17 +125,19 @@ impl OverlayWidget {
                         (ui.available_width() * 0.4).min(150.0),
                         (ui.available_width() * 0.4).min(150.0),
                     );
-                    let max_angle = self
-                        .collector
-                        .active_plugin()
-                        .map(|p: &dyn GamePlugin| p.get_config().max_steering_angle)
-                        .unwrap_or(900.0);
-
-                    SteeringWheel::new(&self.settings.steering_wheel, max_angle).show(
-                        ui,
-                        self.current_steering,
-                        wheel_size,
+                    let center = egui::pos2(
+                        ui.next_widget_position().x + wheel_size.x / 2.0,
+                        ui.next_widget_position().y + wheel_size.y / 2.0,
                     );
+                    let (rect, _) = ui.allocate_exact_size(wheel_size, egui::Sense::hover());
+                    SteeringWheel::draw(
+                        ui.painter(),
+                        rect.center(),
+                        wheel_size.x / 2.0 - 6.0,
+                        self.current_steering,
+                        1.0,
+                    );
+                    let _ = center;
                 });
 
                 // Current values

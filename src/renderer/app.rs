@@ -1,468 +1,526 @@
 //! Main application
 
 use eframe::egui;
-
 use crate::config::AppSettings;
 use crate::core::DataCollector;
 use std::sync::{Arc, Mutex};
+use egui::color_picker::{color_edit_button_srgba, Alpha};
 
-/// Main SimTrace application
+// ── Palette ──────────────────────────────────────────────────────────────────
+const BAR_BG:      egui::Color32 = egui::Color32::from_rgb(13, 13, 13);
+const CARD_BG:     egui::Color32 = egui::Color32::from_rgb(16, 16, 16);
+const BORDER:      egui::Color32 = egui::Color32::from_rgb(40, 40, 40);
+const LABEL_DIM:   egui::Color32 = egui::Color32::from_rgb(90, 90, 90);
+const LABEL_MID:   egui::Color32 = egui::Color32::from_rgb(140, 140, 140);
+const ACCENT_RED:  egui::Color32 = egui::Color32::from_rgb(220, 45, 45);
+
 pub struct SimTraceApp {
-    /// Settings
     settings: AppSettings,
-    /// Data collector
     collector: Option<Arc<Mutex<DataCollector>>>,
-    /// Current steering angle
     current_steering: f32,
-    /// Current ABS state
-    current_abs_active: bool,
-    /// Whether overlay viewport is open
-    overlay_open: bool,
-    /// Available plugin names
-    available_plugins: Vec<String>,
+    running: bool,
+    config_open: bool,
+    /// 0.0 = fully hidden, 1.0 = fully visible
+    bar_alpha: f32,
 }
 
 impl SimTraceApp {
-    /// Create a new SimTrace application
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // Configure egui for transparency
-        configure_egui(&cc.egui_ctx);
-
-        // Make main viewport background transparent
         cc.egui_ctx.set_visuals(egui::Visuals {
             panel_fill: egui::Color32::TRANSPARENT,
             window_fill: egui::Color32::TRANSPARENT,
             ..egui::Visuals::dark()
         });
 
-        // Try to load existing settings
         let (settings, _) = load_settings();
-
         Self {
             settings,
             collector: None,
             current_steering: 0.0,
-            current_abs_active: false,
-            overlay_open: false,
-            available_plugins: get_available_plugins(),
+            running: true,
+            config_open: false,
+            bar_alpha: 1.0,
         }
     }
 
-    /// Toggle overlay viewport
-    fn toggle_overlay(&mut self, _ctx: &egui::Context) {
-        self.overlay_open = !self.overlay_open;
-        tracing::info!("Toggle overlay called, overlay_open={}", self.overlay_open);
-
-        if self.overlay_open {
-            // Create data collector if needed
-            if self.collector.is_none() {
-                tracing::info!("Creating data collector...");
-                let collector_config = crate::core::collector::CollectorConfig {
-                    update_rate_hz: self.settings.collector.update_rate_hz,
-                    buffer_window_secs: self.settings.collector.buffer_window_secs.unwrap_or(10),
-                };
-                let collector = DataCollector::new(collector_config);
-                self.collector = Some(Arc::new(Mutex::new(collector)));
-                tracing::info!("Data collector created");
-            }
-
-            // Activate the selected plugin - clone Arc to avoid borrow issues
-            if let Some(collector_clone) = self.collector.clone() {
-                let plugin_name = self.settings.collector.plugin.clone();
-                match collector_clone.lock() {
-                    Ok(mut c) => {
-                        tracing::info!("Activating plugin: {}", plugin_name);
-                        if let Err(e) = c.activate_plugin(&plugin_name) {
-                            tracing::error!("Failed to activate plugin '{}': {}", plugin_name, e);
-                        } else {
-                            tracing::info!("Plugin activated successfully: {}", plugin_name);
-                        }
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to lock collector: {}", e);
-                    }
-                }
-            }
-        } else {
-            tracing::info!("Overlay hidden");
+    fn start(&mut self) {
+        if self.collector.is_none() {
+            let cfg = crate::core::collector::CollectorConfig {
+                update_rate_hz: self.settings.collector.update_rate_hz,
+                buffer_window_secs: self.settings.collector.buffer_window_secs.unwrap_or(10),
+            };
+            self.collector = Some(Arc::new(Mutex::new(DataCollector::new(cfg))));
         }
+        if let Some(c) = &self.collector {
+            if let Ok(mut c) = c.lock() {
+                let _ = c.activate_plugin(&self.settings.collector.plugin);
+            }
+        }
+        self.running = true;
     }
 
-    /// Save settings
-    fn save_settings(&self) -> Result<(), anyhow::Error> {
-        let config_path = dirs::config_dir()
-            .map(|p| p.join("simtrace").join("settings.toml"))
-            .or_else(|| dirs::home_dir().map(|p| p.join(".simtrace").join("settings.toml")))
-            .ok_or_else(|| anyhow::anyhow!("Could not determine config directory"))?;
-
-        if let Some(parent) = config_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
-        self.settings.save(&config_path)?;
-        tracing::info!("Settings saved to {:?}", config_path);
-        Ok(())
+    fn stop(&mut self) {
+        self.running = false;
     }
 }
 
 impl eframe::App for SimTraceApp {
+    fn clear_color(&self, _: &egui::Visuals) -> [f32; 4] {
+        [0.0, 0.0, 0.0, 0.0]
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Poll telemetry if we have a collector
-        if let Some(ref collector) = self.collector {
-            if let Ok(mut c) = collector.lock() {
-                c.poll();
-                let buffer = c.buffer();
-                if let Some(point) = buffer.latest() {
-                    self.current_steering = point.telemetry.steering_angle;
-                    self.current_abs_active = point.abs_active;
+        // ── Poll telemetry ───────────────────────────────────────────────────
+        let buffer = if self.running {
+            if let Some(collector) = self.collector.clone() {
+                if let Ok(mut c) = collector.lock() {
+                    c.poll();
+                    if let Some(pt) = c.buffer().latest() {
+                        self.current_steering = pt.telemetry.steering_angle;
+                    }
                 }
             }
+            self.collector.as_ref().and_then(|c| c.lock().ok().map(|c| c.buffer()))
+        } else {
+            None
+        };
+
+        if self.running && self.collector.is_none() {
+            self.start();
         }
 
-        // Request repaint at configured FPS
         let fps = self.settings.graph.overlay_fps;
-        let interval = std::time::Duration::from_secs_f64(1.0 / fps as f64);
-        ctx.request_repaint_after(interval);
+        ctx.request_repaint_after(std::time::Duration::from_secs_f64(1.0 / fps as f64));
 
-        // Always render overlay viewport to keep it alive, but hide when closed
-        let buffer = self
-            .collector
-            .as_ref()
-            .and_then(|c| c.lock().ok().map(|c| c.buffer()));
-
-        render_overlay_viewport(
-            ctx,
-            &self.settings,
-            buffer.as_ref(),
-            self.current_steering,
-            self.current_abs_active,
-            self.overlay_open,
-        );
-
-        // Config window - always visible in main viewport
-        egui::Window::new("⚙️ Config")
-            .resizable(true)
-            .default_size([350.0, 300.0])
-            .anchor(egui::Align2::LEFT_TOP, [10.0, 10.0])
-            .collapsible(false)
+        egui::CentralPanel::default()
+            .frame(egui::Frame::none())
             .show(ctx, |ui| {
-                ui.vertical(|ui| {
-                    ui.heading("SimTrace");
-                    ui.separator();
+                let screen   = ui.max_rect();
+                let opacity  = self.settings.overlay.opacity;
+                let a        = (opacity * 255.0) as u8;
+                let bar_h    = 26.0_f32;
+                let pad      = 6.0_f32;
 
-                    // Action buttons
-                    ui.horizontal(|ui| {
-                        if ui
-                            .button(if self.overlay_open {
-                                "Hide Overlay"
-                            } else {
-                                "Show Overlay"
-                            })
-                            .clicked()
-                        {
-                            self.toggle_overlay(ctx);
-                        }
-                        if ui.button("Save").clicked() {
-                            if let Err(e) = self.save_settings() {
-                                ui.label(
-                                    egui::RichText::new(format!("Error: {}", e))
-                                        .small()
-                                        .color(egui::Color32::RED),
-                                );
-                            } else {
-                                ui.label(
-                                    egui::RichText::new("✓ Saved!")
-                                        .small()
-                                        .color(egui::Color32::GREEN),
-                                );
-                            }
-                        }
-                    });
-
-                    // Plugin selection dropdown
-                    ui.label("Game Plugin");
-                    ui.horizontal(|ui| {
-                        let selected_display_name =
-                            get_plugin_display_name(&self.settings.collector.plugin);
-                        egui::ComboBox::from_label("")
-                            .selected_text(egui::RichText::new(selected_display_name).monospace())
-                            .show_ui(ui, |ui| {
-                                for plugin in &self.available_plugins {
-                                    let display_name = match plugin.as_str() {
-                                        "assetto_competizione" => "Assetto Corsa Competizione",
-                                        "test" => "Test (Mock Data)",
-                                        _ => plugin,
-                                    };
-                                    if ui
-                                        .selectable_value(
-                                            &mut self.settings.collector.plugin,
-                                            plugin.clone(),
-                                            display_name,
-                                        )
-                                        .clicked()
-                                    {
-                                        // Auto-start if overlay is already open
-                                        if self.overlay_open {
-                                            if self.collector.is_none() {
-                                                let collector_config =
-                                                    crate::core::collector::CollectorConfig {
-                                                        update_rate_hz: self
-                                                            .settings
-                                                            .collector
-                                                            .update_rate_hz,
-                                                        buffer_window_secs: self
-                                                            .settings
-                                                            .collector
-                                                            .buffer_window_secs
-                                                            .unwrap_or(10),
-                                                    };
-                                                let collector =
-                                                    DataCollector::new(collector_config);
-                                                self.collector =
-                                                    Some(Arc::new(Mutex::new(collector)));
-                                            }
-
-                                            // Clone Arc to avoid borrow issues
-                                            if let Some(collector_clone) = self.collector.clone() {
-                                                let plugin_clone = plugin.clone();
-                                                match collector_clone.lock() {
-                                                    Ok(mut c) => {
-                                                        if let Err(e) =
-                                                            c.activate_plugin(&plugin_clone)
-                                                        {
-                                                            ui.label(
-                                                                egui::RichText::new(format!(
-                                                                    "Error: {}",
-                                                                    e
-                                                                ))
-                                                                .small()
-                                                                .color(egui::Color32::RED),
-                                                            );
-                                                        } else {
-                                                            ui.label(
-                                                                egui::RichText::new(format!(
-                                                                    "✓ {} started!",
-                                                                    display_name
-                                                                ))
-                                                                .small()
-                                                                .color(egui::Color32::GREEN),
-                                                            );
-                                                        }
-                                                    }
-                                                    Err(e) => {
-                                                        ui.label(
-                                                            egui::RichText::new(format!(
-                                                                "Lock error: {}",
-                                                                e
-                                                            ))
-                                                            .small()
-                                                            .color(egui::Color32::RED),
-                                                        );
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            });
-                    });
-
-                    ui.add_space(10.0);
-                    ui.separator();
-
-                    // Quick settings
-                    ui.label("Overlay Size");
-                    ui.horizontal(|ui| {
-                        ui.label("Width:");
-                        ui.add(egui::Slider::new(
-                            &mut self.settings.overlay.width,
-                            300.0..=1200.0,
-                        ));
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Height:");
-                        ui.add(egui::Slider::new(
-                            &mut self.settings.overlay.height,
-                            200.0..=800.0,
-                        ));
-                    });
-
-                    ui.add_space(5.0);
-                    ui.label("Opacity");
-                    ui.horizontal(|ui| {
-                        ui.add(egui::Slider::new(
-                            &mut self.settings.overlay.opacity,
-                            0.1..=1.0,
-                        ));
-                    });
-
-                    ui.add_space(5.0);
-                    ui.label("Time Window");
-                    ui.horizontal(|ui| {
-                        ui.add(
-                            egui::Slider::new(&mut self.settings.graph.window_seconds, 2.0..=30.0)
-                                .suffix("s"),
-                        );
-                    });
-
-                    ui.add_space(5.0);
-                    ui.label("Overlay FPS");
-                    ui.horizontal(|ui| {
-                        ui.add(
-                            egui::Slider::new(&mut self.settings.graph.overlay_fps, 10..=120)
-                                .suffix(" fps"),
-                        );
-                    });
+                // ── Hover detection + bar fade ───────────────────────────────
+                let hovered = ctx.input(|i| {
+                    i.pointer.hover_pos()
+                        .map(|p| screen.contains(p))
+                        .unwrap_or(false)
                 });
+                let target = if hovered || self.config_open { 1.0_f32 } else { 0.0_f32 };
+                // Fast in, slow out
+                let speed = if target > self.bar_alpha { 0.18 } else { 0.06 };
+                self.bar_alpha += (target - self.bar_alpha) * speed;
+                if (self.bar_alpha - target).abs() > 0.005 {
+                    ctx.request_repaint(); // keep animating
+                }
+                let ba = (a as f32 * self.bar_alpha) as u8;
+
+                // ── Title bar — same width as content card ───────────────────
+                let bar_rect = egui::Rect::from_min_max(
+                    egui::pos2(screen.min.x + pad, screen.min.y),
+                    egui::pos2(screen.max.x - pad, screen.min.y + bar_h),
+                );
+                ui.painter().rect_filled(bar_rect, egui::Rounding { nw: 5.0, ne: 5.0, sw: 0.0, se: 0.0 }, with_alpha(BAR_BG, ba));
+
+                // Red accent stripe along the top edge of the bar
+                ui.painter().line_segment(
+                    [bar_rect.min, egui::pos2(bar_rect.max.x, bar_rect.min.y)],
+                    egui::Stroke::new(2.0, with_alpha(ACCENT_RED, ba)),
+                );
+                // Bottom divider
+                ui.painter().line_segment(
+                    [egui::pos2(bar_rect.min.x, bar_rect.max.y),
+                     egui::pos2(bar_rect.max.x, bar_rect.max.y)],
+                    egui::Stroke::new(1.0, with_alpha(BORDER, ba)),
+                );
+
+                // Drag zone (always interactive, even when faded)
+                let drag_resp = ui.allocate_rect(bar_rect, egui::Sense::click_and_drag());
+                if drag_resp.dragged() {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                }
+
+                // Brand label — left side
+                ui.painter().text(
+                    egui::pos2(bar_rect.min.x + 10.0, bar_rect.center().y),
+                    egui::Align2::LEFT_CENTER,
+                    "SIMTRACE",
+                    egui::FontId::monospace(10.0),
+                    with_alpha(LABEL_MID, ba),
+                );
+
+                // Grip lines — center of bar
+                let gx = bar_rect.center().x;
+                let gy = bar_rect.center().y;
+                for dy in [-3.5_f32, 0.0, 3.5] {
+                    ui.painter().line_segment(
+                        [egui::pos2(gx - 12.0, gy + dy), egui::pos2(gx + 12.0, gy + dy)],
+                        egui::Stroke::new(1.5, with_alpha(LABEL_DIM, ba)),
+                    );
+                }
+
+                // Gear button — right side
+                let gear_rect = egui::Rect::from_center_size(
+                    egui::pos2(bar_rect.max.x - 16.0, bar_rect.center().y),
+                    egui::vec2(22.0, 22.0),
+                );
+                let gear_resp = ui.allocate_rect(gear_rect, egui::Sense::click());
+                if self.config_open || gear_resp.hovered() {
+                    ui.painter().rect_filled(
+                        gear_rect, 4.0,
+                        egui::Color32::from_rgba_unmultiplied(60, 60, 60, ba),
+                    );
+                }
+                ui.painter().text(
+                    gear_rect.center(), egui::Align2::CENTER_CENTER,
+                    "⚙", egui::FontId::proportional(13.0),
+                    with_alpha(if self.config_open { egui::Color32::WHITE } else { LABEL_MID }, ba),
+                );
+                if gear_resp.clicked() { self.config_open = !self.config_open; }
+
+                // ── Content card — same x-bounds as bar ─────────────────────
+                let content_rect = egui::Rect::from_min_max(
+                    egui::pos2(screen.min.x + pad, screen.min.y + bar_h),
+                    egui::pos2(screen.max.x - pad, screen.max.y - pad),
+                );
+                ui.painter().rect_filled(
+                    content_rect, 5.0, with_alpha(CARD_BG, a),
+                );
+                ui.painter().rect_stroke(
+                    content_rect, 5.0,
+                    egui::Stroke::new(1.0, with_alpha(BORDER, a)),
+                );
+
+                if self.running {
+                    let mut content_ui = ui.child_ui(
+                        content_rect.shrink(4.0),
+                        egui::Layout::top_down(egui::Align::LEFT),
+                        None,
+                    );
+                    draw_telemetry(
+                        &mut content_ui, &self.settings,
+                        buffer.as_ref(), self.current_steering, a,
+                    );
+                }
+
+                // ── Config panel ─────────────────────────────────────────────
+                if self.config_open {
+                    let panel_w   = 260.0_f32.min(screen.width() - 8.0);
+                    let panel_top = screen.min.y + bar_h + 4.0;
+                    let panel_rect = egui::Rect::from_min_size(
+                        egui::pos2(screen.max.x - panel_w - 4.0, panel_top),
+                        egui::vec2(panel_w, (screen.max.y - panel_top - 4.0).max(40.0)),
+                    );
+                    ui.painter().rect_filled(panel_rect, 6.0, egui::Color32::from_rgb(20, 20, 20));
+                    ui.painter().rect_stroke(
+                        panel_rect, 6.0,
+                        egui::Stroke::new(1.0, BORDER),
+                    );
+                    let mut child = ui.child_ui(
+                        panel_rect.shrink(12.0),
+                        egui::Layout::top_down(egui::Align::LEFT),
+                        None,
+                    );
+                    egui::ScrollArea::vertical().show(&mut child, |ui| {
+                        if draw_config(ui, &mut self.settings, &mut self.running) {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                    });
+                    if self.running && self.collector.is_none() { self.start(); }
+                }
             });
     }
 }
 
-/// Load settings from file
-fn load_settings() -> (AppSettings, bool) {
-    let config_path: Option<std::path::PathBuf> = dirs::config_dir()
-        .map(|p| p.join("simtrace").join("settings.toml"))
-        .or_else(|| dirs::home_dir().map(|p| p.join(".simtrace").join("settings.toml")));
+// ── Telemetry layout ─────────────────────────────────────────────────────────
 
-    if let Some(path) = config_path {
-        match AppSettings::load(&path) {
-            Ok(settings) => {
-                tracing::info!("Settings loaded from {:?}", path);
-                return (settings, true);
-            }
-            Err(e) => {
-                tracing::warn!("Failed to load settings from {:?}: {}", path, e);
-            }
-        }
-    }
-
-    (AppSettings::default(), false)
-}
-
-/// Render the overlay viewport as a separate native window
-fn render_overlay_viewport(
-    ctx: &egui::Context,
+fn draw_telemetry(
+    ui: &mut egui::Ui,
     settings: &AppSettings,
-    buffer: Option<&std::sync::Arc<crate::core::TelemetryBuffer>>,
+    buffer: Option<&Arc<crate::core::TelemetryBuffer>>,
     current_steering: f32,
-    _current_abs_active: bool,
-    is_open: bool,
+    a: u8,
 ) {
-    if !is_open {
-        return;
-    }
+    let opacity  = settings.overlay.opacity;
+    let available = ui.available_rect_before_wrap();
 
-    let opacity = settings.overlay.opacity;
+    let latest   = buffer.and_then(|b| b.latest());
+    let throttle = latest.as_ref().map(|p| p.telemetry.throttle).unwrap_or(0.0);
+    let brake    = latest.as_ref().map(|p| p.telemetry.brake).unwrap_or(0.0);
+    let clutch   = latest.as_ref().map(|p| p.telemetry.clutch).unwrap_or(0.0);
+    let abs_on   = latest.as_ref().map(|p| p.abs_active).unwrap_or(false);
 
-    // Configure viewport to be a separate native window
-    let viewport_builder = egui::ViewportBuilder::default()
-        .with_title("SimTrace Overlay")
-        .with_inner_size([settings.overlay.width, settings.overlay.height])
-        .with_position([settings.overlay.position_x, settings.overlay.position_y])
-        .with_decorations(false) // Borderless
-        .with_transparent(true) // Enable per-pixel transparency
-        .with_visible(true)
-        .with_active(true)
-        .with_always_on_top();
+    let bar_w    = 16.0_f32;
+    let bar_gap  = 4.0_f32;
+    let bar_pad  = 10.0_f32;
+    let bars_col_w = bar_w * 3.0 + bar_gap * 2.0 + bar_pad * 2.0;
 
-    // Show the viewport - this creates a separate native window
-    let viewport_id = egui::ViewportId::from_hash_of("simtrace-overlay");
-    ctx.show_viewport_immediate(viewport_id, viewport_builder, |ctx, _class| {
-        // Set transparent visuals
-        ctx.set_visuals(egui::Visuals {
-            panel_fill: egui::Color32::TRANSPARENT,
-            window_fill: egui::Color32::TRANSPARENT,
-            ..egui::Visuals::dark()
+    let radius      = ((available.height() - 24.0) / 2.0 * 0.72).max(22.0);
+    let wheel_col_w = (radius * 2.8).min(available.width() * 0.30);
+    let graph_w     = (available.width() - bars_col_w - wheel_col_w - 16.0).max(40.0);
+    let graph_h     = (available.height() - 20.0).max(30.0);
+
+    ui.horizontal(|ui| {
+        // ── Trace graph ──────────────────────────────────────────────────────
+        ui.vertical(|ui| {
+            crate::renderer::TraceGraph::new_simple(
+                buffer.map(|v| &**v), &settings.graph, &settings.colors, opacity,
+            )
+            .show_simple(ui, egui::vec2(graph_w, graph_h));
+
+            ui.label(
+                egui::RichText::new(format!("{:.0}s", settings.graph.window_seconds))
+                    .size(9.0).color(with_alpha(LABEL_DIM, a)),
+            );
         });
 
-        // Render content with semi-transparent background
-        // Note: frame.set_window_alpha() only works on main viewport in eframe 0.29
-        // For sub-viewports, we need to manually draw a semi-transparent background
-        egui::CentralPanel::default()
-            .frame(egui::Frame::none().fill(egui::Color32::TRANSPARENT))
-            .show(ctx, |ui| {
-                // Draw semi-transparent background for the entire window
-                // This simulates window-level opacity for the sub-viewport
-                let bg_alpha = (255.0 * opacity) as u8;
-                let bg_color = egui::Color32::from_rgba_unmultiplied(0, 0, 0, bg_alpha);
-                ui.painter()
-                    .rect_filled(ui.available_rect_before_wrap(), 0.0, bg_color);
+        // ── Pedal bars ───────────────────────────────────────────────────────
+        let (bars_rect, _) = ui.allocate_exact_size(
+            egui::vec2(bars_col_w, available.height()), egui::Sense::hover(),
+        );
+        let p = ui.painter();
 
-                ui.vertical(|ui: &mut egui::Ui| {
-                    // Add some padding
-                    ui.add_space(8.0);
+        let brake_color = if abs_on {
+            AppSettings::parse_color(&settings.colors.abs_active)
+        } else {
+            AppSettings::parse_color(&settings.colors.brake)
+        };
 
-                    // Drag handle area
-                    ui.horizontal(|ui: &mut egui::Ui| {
-                        ui.label(egui::RichText::new("☰").small().weak());
-                        ui.label(egui::RichText::new("🏁 SimTrace").small());
-                    });
-                    ui.add_space(4.0);
+        let specs: &[(f32, egui::Color32, &str)] = &[
+            (clutch,   AppSettings::parse_color(&settings.colors.clutch),   "C"),
+            (brake,    brake_color,                                          "B"),
+            (throttle, AppSettings::parse_color(&settings.colors.throttle), "T"),
+        ];
 
-                    // Trace graph
-                    let graph_width = settings.overlay.width - 16.0;
-                    let graph_height = settings.overlay.height * 0.6;
-                    let graph_size = egui::Vec2::new(graph_width, graph_height);
+        for (i, (value, color, label)) in specs.iter().enumerate() {
+            let x       = bars_rect.min.x + bar_pad + i as f32 * (bar_w + bar_gap);
+            let top     = bars_rect.min.y + 4.0;
+            let bottom  = bars_rect.max.y - 16.0;
+            let h       = bottom - top;
 
-                    crate::renderer::TraceGraph::new_simple(
-                        buffer.map(|v| &**v),
-                        &settings.graph,
-                        &settings.colors,
-                        opacity,
-                    )
-                    .show_simple(ui, graph_size);
+            let track = egui::Rect::from_min_size(egui::pos2(x, top), egui::vec2(bar_w, h));
 
-                    ui.add_space(8.0);
+            // Track
+            p.rect_filled(track, 3.0, egui::Color32::from_rgba_unmultiplied(8, 8, 8, (a as f32 * 0.95) as u8));
+            p.rect_stroke(track, 3.0, egui::Stroke::new(0.5, with_alpha(BORDER, a)));
 
-                    // Bottom row
-                    ui.horizontal(|ui: &mut egui::Ui| {
-                        ui.vertical(|ui: &mut egui::Ui| {
-                            ui.label(egui::RichText::new("Steering").small().weak());
-                            ui.label(
-                                egui::RichText::new(format!("{:.0}°", current_steering))
-                                    .small()
-                                    .monospace(),
-                            );
-                        });
+            // 50% tick mark
+            let mid_y = top + h * 0.5;
+            p.line_segment(
+                [egui::pos2(x, mid_y), egui::pos2(x + bar_w * 0.4, mid_y)],
+                egui::Stroke::new(0.5, with_alpha(LABEL_DIM, a)),
+            );
 
-                        ui.with_layout(
-                            egui::Layout::right_to_left(egui::Align::Center),
-                            |ui: &mut egui::Ui| {
-                                ui.label(egui::RichText::new("Window").small().weak());
-                                ui.label(
-                                    egui::RichText::new(format!(
-                                        "{:.1}s",
-                                        settings.graph.window_seconds
-                                    ))
-                                    .small()
-                                    .monospace(),
-                                );
-                            },
-                        );
-                    });
+            // Fill
+            if *value > 0.005 {
+                let fill_h = (h * value).max(2.0);
+                p.rect_filled(
+                    egui::Rect::from_min_size(
+                        egui::pos2(x, bottom - fill_h),
+                        egui::vec2(bar_w, fill_h),
+                    ),
+                    3.0,
+                    egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), a),
+                );
+            }
 
-                    ui.add_space(8.0);
-                });
-            });
+            // Label — use the channel colour, dimmed
+            p.text(
+                egui::pos2(x + bar_w * 0.5, bars_rect.max.y - 2.0),
+                egui::Align2::CENTER_BOTTOM,
+                *label,
+                egui::FontId::monospace(8.0),
+                egui::Color32::from_rgba_unmultiplied(
+                    color.r() / 2 + 40, color.g() / 2 + 40, color.b() / 2 + 40, a,
+                ),
+            );
+        }
+
+        // ── Steering wheel ───────────────────────────────────────────────────
+        let (wheel_rect, _) = ui.allocate_exact_size(
+            egui::vec2(wheel_col_w, available.height()), egui::Sense::hover(),
+        );
+        let center       = egui::pos2(wheel_rect.center().x, wheel_rect.center().y - 8.0);
+        let wheel_radius = (wheel_col_w / 2.0 - 6.0).max(10.0);
+
+        crate::renderer::SteeringWheel::draw(
+            ui.painter(), center, wheel_radius, current_steering, opacity,
+        );
+
+        ui.painter().text(
+            egui::pos2(center.x, wheel_rect.max.y - 2.0),
+            egui::Align2::CENTER_BOTTOM,
+            format!("{:.0}°", current_steering),
+            egui::FontId::monospace(9.0),
+            with_alpha(LABEL_MID, a),
+        );
     });
 }
 
-/// Get list of available plugin names
-fn get_available_plugins() -> Vec<String> {
-    vec!["assetto_competizione".to_string(), "test".to_string()]
+// ── Config panel ─────────────────────────────────────────────────────────────
+
+fn draw_config(ui: &mut egui::Ui, settings: &mut AppSettings, running: &mut bool) -> bool {
+    // Force readable text on dark panel
+    ui.visuals_mut().override_text_color = Some(egui::Color32::from_gray(210));
+
+    // Status dot + running state
+    ui.horizontal(|ui| {
+        let (dot_color, status_text) = if *running {
+            (egui::Color32::from_rgb(60, 200, 80), "LIVE")
+        } else {
+            (egui::Color32::from_gray(60), "STOPPED")
+        };
+        let dot_pos = ui.next_widget_position() + egui::vec2(5.0, 8.0);
+        ui.add_space(14.0);
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(0.0, 16.0), egui::Sense::hover());
+        ui.painter().circle_filled(dot_pos, 4.0, dot_color);
+        let _ = rect;
+        ui.label(
+            egui::RichText::new(status_text)
+                .size(10.0).monospace()
+                .color(dot_color),
+        );
+    });
+
+    ui.add_space(6.0);
+
+    // Action buttons
+    ui.horizontal(|ui| {
+        let run_label = if *running { "■  Stop" } else { "▶  Start" };
+        if ui.add(styled_button(run_label)).clicked() { *running = !*running; }
+        if ui.add(styled_button("Save")).clicked() {
+            if let Err(e) = save_settings(settings) { tracing::error!("{e}"); }
+        }
+    });
+    ui.add_space(2.0);
+    let mut quit = false;
+    if ui.add(
+        egui::Button::new(
+            egui::RichText::new("Quit")
+                .size(11.0)
+                .color(egui::Color32::from_rgb(180, 60, 60))
+        )
+        .min_size(egui::vec2(ui.available_width(), 0.0))
+        .fill(egui::Color32::from_rgb(35, 18, 18))
+    ).clicked() { quit = true; }
+
+    // ── Game ─────────────────────────────────────────────────────────────────
+    section_header(ui, "GAME");
+    egui::ComboBox::from_id_source("plugin")
+        .width(ui.available_width())
+        .selected_text(plugin_display_name(&settings.collector.plugin))
+        .show_ui(ui, |ui| {
+            for (id, name) in &[
+                ("assetto_competizione", "Assetto Corsa Competizione"),
+                ("test", "Test (Mock Data)"),
+            ] {
+                ui.selectable_value(&mut settings.collector.plugin, id.to_string(), *name);
+            }
+        });
+
+    // ── Display ──────────────────────────────────────────────────────────────
+    section_header(ui, "DISPLAY");
+    ui.checkbox(&mut settings.graph.show_legend, "Show legend");
+    ui.add_space(4.0);
+    slider_row(ui, "Opacity", &mut settings.overlay.opacity, 0.1..=1.0, "");
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Window").size(11.0).color(LABEL_MID));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.add(egui::Slider::new(&mut settings.graph.window_seconds, 2.0..=30.0).suffix("s").show_value(true));
+        });
+    });
+    slider_row_int(ui, "FPS", &mut settings.graph.overlay_fps, 10..=120, " fps");
+
+    // ── Colours ──────────────────────────────────────────────────────────────
+    section_header(ui, "COLOURS");
+    color_row(ui, "Throttle", &mut settings.colors.throttle);
+    color_row(ui, "Brake",    &mut settings.colors.brake);
+    color_row(ui, "ABS",      &mut settings.colors.abs_active);
+    color_row(ui, "Clutch",   &mut settings.colors.clutch);
+
+    quit
 }
 
-/// Get display name for a plugin
-fn get_plugin_display_name(plugin: &str) -> String {
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+fn with_alpha(c: egui::Color32, a: u8) -> egui::Color32 {
+    egui::Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), a)
+}
+
+fn section_header(ui: &mut egui::Ui, label: &str) {
+    ui.add_space(10.0);
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(label).size(9.0).monospace().color(LABEL_DIM));
+        let y = ui.next_widget_position().y + 5.0;
+        let x0 = ui.next_widget_position().x;
+        let x1 = ui.max_rect().max.x;
+        if x1 > x0 {
+            ui.painter().line_segment(
+                [egui::pos2(x0 + 4.0, y), egui::pos2(x1, y)],
+                egui::Stroke::new(0.5, BORDER),
+            );
+        }
+    });
+    ui.add_space(4.0);
+}
+
+fn slider_row(ui: &mut egui::Ui, label: &str, value: &mut f32, range: std::ops::RangeInclusive<f32>, suffix: &str) {
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(label).size(11.0).color(LABEL_MID));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.add(egui::Slider::new(value, range).suffix(suffix).show_value(true));
+        });
+    });
+}
+
+fn slider_row_int(ui: &mut egui::Ui, label: &str, value: &mut u32, range: std::ops::RangeInclusive<u32>, suffix: &str) {
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(label).size(11.0).color(LABEL_MID));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.add(egui::Slider::new(value, range).suffix(suffix).show_value(true));
+        });
+    });
+}
+
+fn styled_button(label: &str) -> egui::Button<'static> {
+    egui::Button::new(egui::RichText::new(label.to_owned()).size(11.0))
+        .fill(egui::Color32::from_rgb(38, 38, 38))
+}
+
+fn color_row(ui: &mut egui::Ui, label: &str, hex: &mut String) {
+    ui.horizontal(|ui| {
+        let mut color = AppSettings::parse_color(hex);
+        if color_edit_button_srgba(ui, &mut color, Alpha::Opaque).changed() {
+            *hex = format!("#{:02X}{:02X}{:02X}", color.r(), color.g(), color.b());
+        }
+        ui.label(egui::RichText::new(label).size(11.0).color(LABEL_MID));
+    });
+}
+
+fn plugin_display_name(plugin: &str) -> &str {
     match plugin {
-        "assetto_competizione" => "Assetto Corsa Competizione".to_string(),
-        "test" => "Test (Mock Data)".to_string(),
-        _ => plugin.to_string(),
+        "assetto_competizione" => "Assetto Corsa Competizione",
+        "test"                 => "Test (Mock Data)",
+        _                      => plugin,
     }
 }
 
-/// Configure egui settings
-fn configure_egui(ctx: &egui::Context) {
-    let style = (*ctx.style()).clone();
-    ctx.set_style(style);
+fn load_settings() -> (AppSettings, bool) {
+    let path = dirs::config_dir()
+        .map(|p| p.join("simtrace").join("settings.toml"))
+        .or_else(|| dirs::home_dir().map(|p| p.join(".simtrace").join("settings.toml")));
+    if let Some(p) = path {
+        if let Ok(s) = AppSettings::load(&p) { return (s, true); }
+    }
+    (AppSettings::default(), false)
+}
+
+fn save_settings(settings: &AppSettings) -> Result<(), anyhow::Error> {
+    let path = dirs::config_dir()
+        .map(|p| p.join("simtrace").join("settings.toml"))
+        .or_else(|| dirs::home_dir().map(|p| p.join(".simtrace").join("settings.toml")))
+        .ok_or_else(|| anyhow::anyhow!("No config dir"))?;
+    if let Some(p) = path.parent() { std::fs::create_dir_all(p)?; }
+    settings.save(&path)
 }

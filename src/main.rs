@@ -20,12 +20,14 @@ fn main() -> eframe::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    // Create native options with transparent window support
+    // Create native options — main window IS the transparent overlay
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1280.0, 720.0])
-            .with_min_inner_size([800.0, 600.0])
-            .with_transparent(true), // Enable OS-level window transparency
+            .with_inner_size([600.0, 400.0])
+            .with_decorations(false)
+            .with_transparent(true)
+            .with_always_on_top()
+            .with_resizable(true),
         ..Default::default()
     };
 
