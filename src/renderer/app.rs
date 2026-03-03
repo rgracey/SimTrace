@@ -464,7 +464,7 @@ fn draw_config(ui: &mut egui::Ui, settings: &mut AppSettings, running: &mut bool
     // Force readable text on dark panel
     ui.visuals_mut().override_text_color = Some(egui::Color32::from_gray(210));
 
-    // Status dot + running state
+    // Status dot + label + stop/start inline
     ui.horizontal(|ui| {
         let (dot_color, status_text) = if *running {
             (egui::Color32::from_rgb(60, 200, 80), "LIVE")
@@ -478,18 +478,16 @@ fn draw_config(ui: &mut egui::Ui, settings: &mut AppSettings, running: &mut bool
                 .size(10.0).monospace()
                 .color(dot_color),
         );
+        ui.add_space(8.0);
+        let run_label = if *running { "■  Stop" } else { "▶  Start" };
+        if ui.add(styled_button(run_label)).clicked() { *running = !*running; }
     });
 
     ui.add_space(6.0);
 
-    // Action buttons
-    ui.horizontal(|ui| {
-        let run_label = if *running { "■  Stop" } else { "▶  Start" };
-        if ui.add(styled_button(run_label)).clicked() { *running = !*running; }
-        if ui.add(styled_button("Save")).clicked() {
-            if let Err(e) = save_settings(settings) { tracing::error!("{e}"); }
-        }
-    });
+    if ui.add(styled_button("Save").min_size(egui::vec2(ui.available_width(), 0.0))).clicked() {
+        if let Err(e) = save_settings(settings) { tracing::error!("{e}"); }
+    }
     // ── Game ─────────────────────────────────────────────────────────────────
     section_header(ui, "GAME");
     egui::ComboBox::from_id_source("plugin")
