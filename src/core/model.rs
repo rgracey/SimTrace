@@ -1,7 +1,7 @@
 //! Common telemetry model - normalized data structure for all games
 
-use instant::Instant;
 use serde::{Deserialize, Serialize};
+use std::time::Instant;
 
 /// Main telemetry data structure returned by game plugins
 #[derive(Debug, Clone, Serialize, Deserialize)]

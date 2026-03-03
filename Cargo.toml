@@ -26,13 +26,5 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 memmap2 = "0.9"
 winapi = { version = "0.3", features = ["winnt", "handleapi", "memoryapi"] }
 
-# Cross-platform utilities
-parking_lot = "0.12"
-instant = "0.1"
-
 [dev-dependencies]
 criterion = "0.5"
-
-[[bench]]
-name = "telemetry_buffer"
-harness = false
