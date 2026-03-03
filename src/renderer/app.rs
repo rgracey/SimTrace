@@ -211,6 +211,7 @@ fn render_overlay_viewport(
     _current_abs_active: bool,
     is_open: bool,
 ) {
+    let alpha = settings.overlay.opacity;
     let viewport_builder = egui::ViewportBuilder::default()
         .with_title("")
         .with_inner_size([settings.overlay.width, settings.overlay.height])
@@ -225,15 +226,23 @@ fn render_overlay_viewport(
             return;
         }
 
-        // Configure the overlay viewport
-        ctx.set_visuals(egui::Visuals::dark());
+        // Configure the overlay viewport with semi-transparent background
+        ctx.set_visuals(egui::Visuals {
+            panel_fill: egui::Color32::from_black_alpha(((1.0 - alpha) * 255.0) as u8),
+            ..egui::Visuals::dark()
+        });
 
-        // Draw semi-transparent background
-        let alpha = settings.overlay.opacity;
+        // Set text color with opacity
+        let text_color =
+            egui::Color32::from_rgba_unmultiplied(255, 255, 255, (alpha * 255.0) as u8);
+
         egui::CentralPanel::default().show(ctx, |ui| {
-            let bg_color = egui::Color32::from_black_alpha(((1.0 - alpha) * 255.0) as u8);
-            ui.painter()
-                .rect_filled(ui.available_rect_before_wrap(), 4.0, bg_color);
+            // Apply opacity to all UI elements by modifying the style
+            let style = ui.style_mut();
+            style.visuals.widgets.noninteractive.fg_stroke.color = text_color;
+            style.visuals.widgets.inactive.fg_stroke.color = text_color;
+            style.visuals.widgets.hovered.fg_stroke.color = text_color;
+            style.visuals.widgets.active.fg_stroke.color = text_color;
 
             // Content
             ui.with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
