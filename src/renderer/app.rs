@@ -217,6 +217,38 @@ impl eframe::App for SimTraceApp {
                     );
                 }
 
+                // ── Resize handle — bottom-right corner of the rectangle ──────
+                {
+                    // Right edge of the circle = content_rect.max.x, bottom = content_rect.max.y
+                    let hx = content_rect.max.x;
+                    let hy = content_rect.max.y;
+                    let grip = 20.0_f32;
+                    let hr = egui::Rect::from_min_max(
+                        egui::pos2(hx - grip, hy - grip),
+                        egui::pos2(hx, hy),
+                    );
+                    let resp = ui.allocate_rect(hr, egui::Sense::drag());
+                    if resp.dragged() {
+                        let delta = resp.drag_delta();
+                        if let Some(inner) = ctx.input(|i| i.viewport().inner_rect) {
+                            let new_size = egui::vec2(
+                                (inner.width()  + delta.x).max(200.0),
+                                (inner.height() + delta.y).max(100.0),
+                            );
+                            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(new_size));
+                        }
+                    }
+                    // Diagonal grip lines in the corner
+                    let p = ui.painter();
+                    for i in 1..=3i32 {
+                        let o = i as f32 * 5.0;
+                        p.line_segment(
+                            [egui::pos2(hx - o, hy), egui::pos2(hx, hy - o)],
+                            egui::Stroke::new(1.5, with_alpha(LABEL_DIM, ba)),
+                        );
+                    }
+                }
+
                 // ── Config panel ─────────────────────────────────────────────
                 if self.config_open {
                     let panel_w   = 260.0_f32.min(screen.width() - 8.0);
