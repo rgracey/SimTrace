@@ -24,6 +24,8 @@ pub struct SimTraceApp {
     bar_alpha: f32,
     /// Tracks which plugin is currently active so we can detect dropdown changes
     active_plugin: String,
+    /// Set when the user saves; drives a brief "Saved" toast
+    save_toast: Option<std::time::Instant>,
 }
 
 impl SimTraceApp {
@@ -44,6 +46,7 @@ impl SimTraceApp {
             config_open: false,
             bar_alpha: 1.0,
             active_plugin,
+            save_toast: None,
         }
     }
 
@@ -348,7 +351,7 @@ impl eframe::App for SimTraceApp {
                             .layout(egui::Layout::top_down(egui::Align::LEFT)),
                     );
                     egui::ScrollArea::vertical().show(&mut child, |ui| {
-                        draw_config(ui, &mut self.settings, &mut self.running);
+                        draw_config(ui, &mut self.settings, &mut self.running, &mut self.save_toast);
                     });
                     if self.running && self.collector.is_none() {
                         self.start();
@@ -578,7 +581,12 @@ fn draw_telemetry(
 
 // ── Config panel ─────────────────────────────────────────────────────────────
 
-fn draw_config(ui: &mut egui::Ui, settings: &mut AppSettings, running: &mut bool) {
+fn draw_config(
+    ui: &mut egui::Ui,
+    settings: &mut AppSettings,
+    running: &mut bool,
+    save_toast: &mut Option<std::time::Instant>,
+) {
     // Force readable text on dark panel
     ui.visuals_mut().override_text_color = Some(egui::Color32::from_gray(210));
 
@@ -607,10 +615,30 @@ fn draw_config(ui: &mut egui::Ui, settings: &mut AppSettings, running: &mut bool
             if ui.add(styled_button("Save")).clicked() {
                 if let Err(e) = save_settings(settings) {
                     tracing::error!("{e}");
+                } else {
+                    *save_toast = Some(std::time::Instant::now());
                 }
             }
         });
     });
+    // Save toast
+    if let Some(t) = *save_toast {
+        let elapsed = t.elapsed().as_secs_f32();
+        if elapsed < 2.0 {
+            let fade = if elapsed > 1.5 { 1.0 - (elapsed - 1.5) / 0.5 } else { 1.0 };
+            let ta = (fade * 255.0) as u8;
+            ui.label(
+                egui::RichText::new("Saved")
+                    .size(10.0)
+                    .monospace()
+                    .color(egui::Color32::from_rgba_unmultiplied(100, 220, 100, ta)),
+            );
+            ui.ctx().request_repaint();
+        } else {
+            *save_toast = None;
+        }
+    }
+
     // ── Game ─────────────────────────────────────────────────────────────────
     section_header(ui, "GAME");
     egui::ComboBox::from_id_salt("plugin")
