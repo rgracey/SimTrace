@@ -340,13 +340,16 @@ fn draw_telemetry(
     let gear     = latest.as_ref().map(|p| p.telemetry.gear).unwrap_or(0);
     let speed_ms = latest.as_ref().map(|p| p.telemetry.speed).unwrap_or(0.0);
 
-    let bar_w      = 20.0_f32;
     let bar_gap    = 4.0_f32;
-    let bars_col_w = bar_w * 3.0 + bar_gap * 2.0;
-    let gap        = 8.0_f32; // equal spacing between graph↔bars and bars↔wheel
+    let gap        = 8.0_f32;
 
-    // Wheel column matches the stadium cap exactly (cap_r from content_rect, minus shrink)
-    let wheel_col_w = (cap_r - 2.0) * 2.0;
+    // Wheel column: height-derived but capped so it never crowds the graph
+    let wheel_col_w = ((cap_r - 2.0) * 2.0).min(available.width() * 0.30);
+
+    // Bar width scales with height so bars stay proportional when the widget is short
+    let bar_w       = (available.height() * 0.28).clamp(12.0, 22.0);
+    let bars_col_w  = bar_w * 3.0 + bar_gap * 2.0;
+
     let graph_w     = (available.width() - bars_col_w - wheel_col_w - gap * 2.0).max(40.0);
     let graph_h     = available.height();
 
