@@ -2,4 +2,4 @@
 
 pub mod settings;
 
-pub use settings::{AppSettings, ColorScheme, GraphSettings, SteeringWheelSettings};
+pub use settings::{AppSettings, ColorScheme, GraphSettings};

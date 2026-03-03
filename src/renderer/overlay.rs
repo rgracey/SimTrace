@@ -4,7 +4,6 @@ use eframe::egui;
 
 use crate::config::AppSettings;
 use crate::core::DataCollector;
-use crate::plugins::GamePlugin;
 use crate::renderer::{SteeringWheel, TraceGraph};
 use std::sync::Arc;
 
