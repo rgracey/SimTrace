@@ -18,6 +18,8 @@ pub struct SimTraceApp {
     current_abs_active: bool,
     /// Whether overlay viewport is open
     overlay_open: bool,
+    /// Available plugin names
+    available_plugins: Vec<String>,
 }
 
 impl SimTraceApp {
@@ -35,6 +37,7 @@ impl SimTraceApp {
             current_steering: 0.0,
             current_abs_active: false,
             overlay_open: false,
+            available_plugins: get_available_plugins(),
         }
     }
 
@@ -51,6 +54,18 @@ impl SimTraceApp {
                 };
                 let collector = DataCollector::new(collector_config);
                 self.collector = Some(Arc::new(Mutex::new(collector)));
+            }
+
+            // Activate the selected plugin
+            if let Some(ref collector) = self.collector {
+                if let Ok(mut c) = collector.lock() {
+                    let plugin_name = &self.settings.collector.plugin;
+                    if let Err(e) = c.activate_plugin(plugin_name) {
+                        tracing::error!("Failed to activate plugin '{}': {}", plugin_name, e);
+                    } else {
+                        tracing::info!("Activated plugin: {}", plugin_name);
+                    }
+                }
             }
         }
     }
@@ -145,41 +160,76 @@ impl eframe::App for SimTraceApp {
                         }
                     });
 
-                    // Test plugin button
+                    // Plugin selection dropdown
+                    ui.label("Game Plugin");
                     ui.horizontal(|ui| {
-                        if ui.button("🎮 Start Test Plugin").clicked() {
-                            if self.collector.is_none() {
-                                // Create collector if needed
-                                let collector_config = crate::core::collector::CollectorConfig {
-                                    update_rate_hz: self.settings.collector.update_rate_hz,
-                                    buffer_window_secs: self
-                                        .settings
-                                        .collector
-                                        .buffer_window_secs
-                                        .unwrap_or(10),
-                                };
-                                let collector = DataCollector::new(collector_config);
-                                self.collector = Some(Arc::new(Mutex::new(collector)));
-                            }
+                        egui::ComboBox::from_label("")
+                            .selected_text(
+                                egui::RichText::new(&self.settings.collector.plugin).monospace(),
+                            )
+                            .show_ui(ui, |ui| {
+                                for plugin in &self.available_plugins {
+                                    let display_name = match plugin.as_str() {
+                                        "assetto_competizione" => "Assetto Corsa Competizione",
+                                        "test" => "Test (Mock Data)",
+                                        _ => plugin,
+                                    };
+                                    if ui
+                                        .selectable_value(
+                                            &mut self.settings.collector.plugin,
+                                            plugin.clone(),
+                                            display_name,
+                                        )
+                                        .clicked()
+                                    {
+                                        // Auto-start if overlay is already open
+                                        if self.overlay_open {
+                                            if self.collector.is_none() {
+                                                let collector_config =
+                                                    crate::core::collector::CollectorConfig {
+                                                        update_rate_hz: self
+                                                            .settings
+                                                            .collector
+                                                            .update_rate_hz,
+                                                        buffer_window_secs: self
+                                                            .settings
+                                                            .collector
+                                                            .buffer_window_secs
+                                                            .unwrap_or(10),
+                                                    };
+                                                let collector =
+                                                    DataCollector::new(collector_config);
+                                                self.collector =
+                                                    Some(Arc::new(Mutex::new(collector)));
+                                            }
 
-                            if let Some(ref collector) = self.collector {
-                                if let Ok(mut c) = collector.lock() {
-                                    if let Err(e) = c.activate_plugin("test") {
-                                        ui.label(
-                                            egui::RichText::new(format!("Error: {}", e))
-                                                .small()
-                                                .color(egui::Color32::RED),
-                                        );
-                                    } else {
-                                        ui.label(
-                                            egui::RichText::new("✓ Test plugin started!")
-                                                .small()
-                                                .color(egui::Color32::GREEN),
-                                        );
+                                            if let Some(ref collector) = self.collector {
+                                                if let Ok(mut c) = collector.lock() {
+                                                    if let Err(e) = c.activate_plugin(plugin) {
+                                                        ui.label(
+                                                            egui::RichText::new(format!(
+                                                                "Error: {}",
+                                                                e
+                                                            ))
+                                                            .small()
+                                                            .color(egui::Color32::RED),
+                                                        );
+                                                    } else {
+                                                        ui.label(
+                                                            egui::RichText::new(format!(
+                                                                "✓ {} started!",
+                                                                display_name
+                                                            ))
+                                                            .small()
+                                                            .color(egui::Color32::GREEN),
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
-                            }
-                        }
+                            });
                     });
 
                     ui.add_space(10.0);
@@ -349,6 +399,11 @@ fn render_overlay_viewport(
             });
         });
     });
+}
+
+/// Get list of available plugin names
+fn get_available_plugins() -> Vec<String> {
+    vec!["assetto_competizione".to_string(), "test".to_string()]
 }
 
 /// Configure egui settings
