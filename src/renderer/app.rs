@@ -332,12 +332,7 @@ fn load_settings() -> (AppSettings, bool) {
     (AppSettings::default(), false)
 }
 
-/// Overlay viewport ID
-fn overlay_viewport_id() -> egui::ViewportId {
-    egui::ViewportId::from_hash_of("simtrace-overlay")
-}
-
-/// Render the overlay viewport
+/// Render the overlay window
 fn render_overlay_viewport(
     ctx: &egui::Context,
     settings: &AppSettings,
@@ -350,95 +345,70 @@ fn render_overlay_viewport(
         return;
     }
 
-    let alpha = settings.overlay.opacity;
+    let opacity = settings.overlay.opacity;
 
-    // Debug: log viewport creation
-    tracing::info!(
-        "Creating overlay viewport: pos=[{}, {}], size=[{}, {}]",
-        settings.overlay.position_x,
-        settings.overlay.position_y,
-        settings.overlay.width,
-        settings.overlay.height
-    );
+    // Use a regular egui::Window with manually drawn transparent background
+    // The entire window background will have adjustable opacity
+    egui::Window::new("")
+        .title_bar(false) // Borderless
+        .resizable(true)
+        .movable(true)
+        .collapsible(false)
+        .default_pos([settings.overlay.position_x, settings.overlay.position_y])
+        .fixed_size(egui::vec2(settings.overlay.width, settings.overlay.height))
+        .anchor(egui::Align2::LEFT_TOP, [0.0, 0.0])
+        .frame(
+            egui::Frame::none()
+                .fill(egui::Color32::TRANSPARENT)
+                .shadow(egui::epaint::Shadow::NONE),
+        )
+        .show(ctx, |ui: &mut egui::Ui| {
+            // Draw semi-transparent background for the entire window
+            let bg_alpha = (255.0 * opacity) as u8;
+            let bg_color = egui::Color32::from_rgba_unmultiplied(0, 0, 0, bg_alpha);
+            ui.painter()
+                .rect_filled(ui.available_rect_before_wrap(), 0.0, bg_color);
 
-    // Configure viewport to be a separate native window
-    let viewport_builder = egui::ViewportBuilder::default()
-        .with_title("SimTrace Overlay")
-        .with_inner_size([settings.overlay.width, settings.overlay.height])
-        .with_position([settings.overlay.position_x, settings.overlay.position_y])
-        .with_decorations(false) // Borderless
-        .with_transparent(true) // Transparent window
-        .with_visible(true) // Always visible when is_open is true
-        .with_active(true) // Activate the viewport
-        .with_always_on_top(); // Keep on top
+            ui.vertical(|ui: &mut egui::Ui| {
+                // Add some padding
+                ui.add_space(8.0);
 
-    // Show the viewport - this creates a separate native window
-    let viewport_id = overlay_viewport_id();
-    ctx.show_viewport_immediate(viewport_id, viewport_builder, |ctx, class| {
-        tracing::info!("Viewport callback entered");
+                // Drag handle area
+                ui.horizontal(|ui: &mut egui::Ui| {
+                    ui.label(egui::RichText::new("☰").small().weak());
+                    ui.label(egui::RichText::new("🏁 SimTrace").small());
+                });
+                ui.add_space(4.0);
 
-        // Set transparent visuals for this viewport
-        // This ensures panels and windows within the viewport are transparent
-        ctx.set_visuals(egui::Visuals {
-            panel_fill: egui::Color32::TRANSPARENT,
-            window_fill: egui::Color32::TRANSPARENT,
-            ..egui::Visuals::dark()
-        });
+                // Trace graph
+                let graph_width = settings.overlay.width - 16.0;
+                let graph_height = settings.overlay.height * 0.6;
+                let graph_size = egui::Vec2::new(graph_width, graph_height);
 
-        // Also set style to ensure no backgrounds
-        let mut style = (*ctx.style()).clone();
-        style.visuals.window_fill = egui::Color32::TRANSPARENT;
-        style.visuals.panel_fill = egui::Color32::TRANSPARENT;
-        style.visuals.window_shadow = egui::epaint::Shadow::NONE;
-        ctx.set_style(style);
+                crate::renderer::TraceGraph::new_simple(
+                    buffer.map(|v| &**v),
+                    &settings.graph,
+                    &settings.colors,
+                    opacity,
+                )
+                .show_simple(ui, graph_size);
 
-        // Use CentralPanel with transparent frame for the overlay content
-        egui::CentralPanel::default()
-            .frame(
-                egui::Frame::none()
-                    .fill(egui::Color32::TRANSPARENT)
-                    .shadow(egui::epaint::Shadow::NONE),
-            )
-            .show(ctx, |ui| {
-                ui.vertical(|ui| {
-                    // Add some padding
-                    ui.add_space(8.0);
+                ui.add_space(8.0);
 
-                    // Drag handle area
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("☰").small().weak());
-                        ui.label(egui::RichText::new("🏁 SimTrace").small());
+                // Bottom row
+                ui.horizontal(|ui: &mut egui::Ui| {
+                    ui.vertical(|ui: &mut egui::Ui| {
+                        ui.label(egui::RichText::new("Steering").small().weak());
+                        ui.label(
+                            egui::RichText::new(format!("{:.0}°", current_steering))
+                                .small()
+                                .monospace(),
+                        );
                     });
-                    ui.add_space(4.0);
 
-                    // Trace graph with adjustable transparency - use explicit size
-                    let graph_width = settings.overlay.width - 16.0; // Account for padding
-                    let graph_height = settings.overlay.height * 0.6;
-                    let graph_size = egui::Vec2::new(graph_width, graph_height);
-
-                    crate::renderer::TraceGraph::new_simple(
-                        buffer.map(|v| &**v),
-                        &settings.graph,
-                        &settings.colors,
-                        alpha, // Use opacity setting for graph background
-                    )
-                    .show_simple(ui, graph_size);
-
-                    ui.add_space(8.0);
-
-                    // Bottom row
-                    ui.horizontal(|ui| {
-                        // Steering wheel placeholder
-                        ui.vertical(|ui| {
-                            ui.label(egui::RichText::new("Steering").small().weak());
-                            ui.label(
-                                egui::RichText::new(format!("{:.0}°", current_steering))
-                                    .small()
-                                    .monospace(),
-                            );
-                        });
-
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.with_layout(
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui: &mut egui::Ui| {
                             ui.label(egui::RichText::new("Window").small().weak());
                             ui.label(
                                 egui::RichText::new(format!(
@@ -448,13 +418,13 @@ fn render_overlay_viewport(
                                 .small()
                                 .monospace(),
                             );
-                        });
-                    });
-
-                    ui.add_space(8.0);
+                        },
+                    );
                 });
+
+                ui.add_space(8.0);
             });
-    });
+        });
 }
 
 /// Get list of available plugin names
