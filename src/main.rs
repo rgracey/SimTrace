@@ -20,10 +20,14 @@ fn main() -> eframe::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    // Load settings to restore last window geometry
+    let saved = config::AppSettings::load_or_default();
+
     // Create native options — main window IS the transparent overlay
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([600.0, 400.0])
+            .with_inner_size([saved.overlay.width, saved.overlay.height])
+            .with_position(egui::pos2(saved.overlay.position_x, saved.overlay.position_y))
             .with_decorations(false)
             .with_transparent(true)
             .with_always_on_top()

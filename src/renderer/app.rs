@@ -79,7 +79,20 @@ impl eframe::App for SimTraceApp {
         [0.0, 0.0, 0.0, 0.0]
     }
 
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        let _ = save_settings(&self.settings);
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Track window geometry for persistence
+        if let Some(inner) = ctx.input(|i| i.viewport().inner_rect) {
+            self.settings.overlay.width  = inner.width();
+            self.settings.overlay.height = inner.height();
+        }
+        if let Some(outer) = ctx.input(|i| i.viewport().outer_rect) {
+            self.settings.overlay.position_x = outer.min.x;
+            self.settings.overlay.position_y = outer.min.y;
+        }
         // ── Poll telemetry ───────────────────────────────────────────────────
         let buffer = if self.running {
             if let Some(collector) = self.collector.clone() {

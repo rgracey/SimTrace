@@ -155,6 +155,17 @@ impl Default for AppSettings {
 }
 
 impl AppSettings {
+    /// Load from the standard config path, falling back to defaults
+    pub fn load_or_default() -> Self {
+        let path = dirs::config_dir()
+            .map(|p| p.join("simtrace").join("settings.toml"))
+            .or_else(|| dirs::home_dir().map(|p| p.join(".simtrace").join("settings.toml")));
+        if let Some(p) = path {
+            if let Ok(s) = Self::load(&p) { return s; }
+        }
+        Self::default()
+    }
+
     /// Load settings from a file
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, anyhow::Error> {
         let content = std::fs::read_to_string(path)?;
