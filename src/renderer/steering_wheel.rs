@@ -8,7 +8,7 @@ pub struct SteeringWheel;
 impl SteeringWheel {
     pub fn draw(painter: &Painter, center: Pos2, radius: f32, angle_deg: f32, opacity: f32) {
         let a = (opacity * 255.0) as u8;
-        let thickness = (radius * 0.16).max(3.0);
+        let thickness = (radius * 0.28).max(5.0);
 
         // Background ring (dark track)
         painter.circle_stroke(

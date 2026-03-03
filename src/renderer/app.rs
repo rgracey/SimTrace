@@ -211,7 +211,7 @@ impl eframe::App for SimTraceApp {
                         None,
                     );
                     draw_telemetry(
-                        &mut content_ui, &self.settings,
+                        &mut content_ui, &mut self.settings,
                         buffer.as_ref(), self.current_steering, a,
                     );
                 }
@@ -249,7 +249,7 @@ impl eframe::App for SimTraceApp {
 
 fn draw_telemetry(
     ui: &mut egui::Ui,
-    settings: &AppSettings,
+    settings: &mut AppSettings,
     buffer: Option<&Arc<crate::core::TelemetryBuffer>>,
     current_steering: f32,
     a: u8,
@@ -262,6 +262,8 @@ fn draw_telemetry(
     let brake    = latest.as_ref().map(|p| p.telemetry.brake).unwrap_or(0.0);
     let clutch   = latest.as_ref().map(|p| p.telemetry.clutch).unwrap_or(0.0);
     let abs_on   = latest.as_ref().map(|p| p.abs_active).unwrap_or(false);
+    let gear     = latest.as_ref().map(|p| p.telemetry.gear).unwrap_or(0);
+    let speed_ms = latest.as_ref().map(|p| p.telemetry.speed).unwrap_or(0.0);
 
     let bar_w    = 16.0_f32;
     let bar_gap  = 4.0_f32;
@@ -354,18 +356,60 @@ fn draw_telemetry(
             egui::vec2(wheel_col_w, available.height()), egui::Sense::hover(),
         );
         let center       = egui::pos2(wheel_rect.center().x, wheel_rect.center().y - 8.0);
-        let wheel_radius = (wheel_col_w / 2.0 - 6.0).max(10.0);
+        // Leave enough margin for the stroke width (thickness ≈ radius * 0.28)
+        // so the ring doesn't clip the column edge.
+        let wheel_radius = (wheel_col_w / 2.0 * 0.72 - 2.0).max(10.0);
 
         crate::renderer::SteeringWheel::draw(
             ui.painter(), center, wheel_radius, current_steering, opacity,
         );
 
+        // Gear — large, centred inside the ring
+        let gear_str = match gear {
+            -1 => "R".to_string(),
+             0 => "N".to_string(),
+             g => g.to_string(),
+        };
+        ui.painter().text(
+            egui::pos2(center.x, center.y - wheel_radius * 0.20),
+            egui::Align2::CENTER_CENTER,
+            gear_str,
+            egui::FontId::monospace((wheel_radius * 0.52).max(10.0)),
+            with_alpha(egui::Color32::WHITE, a),
+        );
+
+        // Speed — click anywhere on it to toggle kph/mph
+        let speed_val = if settings.graph.speed_mph { speed_ms * 2.237 } else { speed_ms * 3.6 };
+        let unit_str  = if settings.graph.speed_mph { "mph" } else { "kph" };
+        let speed_pos  = egui::pos2(center.x, center.y + wheel_radius * 0.42);
+        let speed_rect = egui::Rect::from_center_size(speed_pos, egui::vec2(wheel_radius * 1.2, wheel_radius * 0.5));
+        let speed_resp = ui.allocate_rect(speed_rect, egui::Sense::click());
+        if speed_resp.clicked() { settings.graph.speed_mph = !settings.graph.speed_mph; }
+        let speed_font_size = (wheel_radius * 0.32).max(9.0);
+        let unit_font_size  = (wheel_radius * 0.22).max(8.0);
+        // Unit label above the number with a bit of breathing room
+        ui.painter().text(
+            egui::pos2(center.x, speed_pos.y - speed_font_size * 0.80),
+            egui::Align2::CENTER_CENTER,
+            unit_str,
+            egui::FontId::monospace(unit_font_size),
+            with_alpha(LABEL_DIM, a),
+        );
+        ui.painter().text(
+            speed_pos,
+            egui::Align2::CENTER_CENTER,
+            format!("{:.0}", speed_val),
+            egui::FontId::monospace(speed_font_size),
+            with_alpha(LABEL_MID, a),
+        );
+
+        // Steering angle below the wheel
         ui.painter().text(
             egui::pos2(center.x, wheel_rect.max.y - 2.0),
             egui::Align2::CENTER_BOTTOM,
             format!("{:.0}°", current_steering),
             egui::FontId::monospace(9.0),
-            with_alpha(LABEL_MID, a),
+            with_alpha(LABEL_DIM, a),
         );
     });
 }
@@ -434,6 +478,7 @@ fn draw_config(ui: &mut egui::Ui, settings: &mut AppSettings, running: &mut bool
     // ── Display ──────────────────────────────────────────────────────────────
     section_header(ui, "DISPLAY");
     ui.checkbox(&mut settings.graph.show_legend, "Show legend");
+    ui.checkbox(&mut settings.graph.speed_mph, "Speed in mph (default kph)");
     ui.add_space(4.0);
     slider_row(ui, "Opacity", &mut settings.overlay.opacity, 0.1..=1.0, "");
     ui.horizontal(|ui| {

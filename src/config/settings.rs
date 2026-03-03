@@ -49,6 +49,9 @@ pub struct GraphSettings {
     /// Target FPS for the overlay visualization
     #[serde(default = "default_overlay_fps")]
     pub overlay_fps: u32,
+    /// Display speed in mph instead of kph
+    #[serde(default)]
+    pub speed_mph: bool,
 }
 
 fn default_overlay_fps() -> u32 {
@@ -121,6 +124,7 @@ impl Default for AppSettings {
                 show_legend: true,
                 line_width: 2.0,
                 overlay_fps: 60,
+                speed_mph: false,
             },
             colors: ColorScheme {
                 throttle: "#00FF00".to_string(),
