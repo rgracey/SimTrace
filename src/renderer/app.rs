@@ -64,9 +64,11 @@ impl SimTraceApp {
         let plugin = self.settings.collector.plugin.clone();
         if let Some(c) = &self.collector {
             if let Ok(mut c) = c.lock() {
+                c.buffer().clear();
                 let _ = c.activate_plugin(&plugin);
             }
         }
+        self.current_steering = 0.0;
         self.active_plugin = plugin;
     }
 }
