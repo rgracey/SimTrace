@@ -163,10 +163,10 @@ impl eframe::App for SimTraceApp {
                     // Plugin selection dropdown
                     ui.label("Game Plugin");
                     ui.horizontal(|ui| {
+                        let selected_display_name =
+                            get_plugin_display_name(&self.settings.collector.plugin);
                         egui::ComboBox::from_label("")
-                            .selected_text(
-                                egui::RichText::new(&self.settings.collector.plugin).monospace(),
-                            )
+                            .selected_text(egui::RichText::new(selected_display_name).monospace())
                             .show_ui(ui, |ui| {
                                 for plugin in &self.available_plugins {
                                     let display_name = match plugin.as_str() {
@@ -404,6 +404,15 @@ fn render_overlay_viewport(
 /// Get list of available plugin names
 fn get_available_plugins() -> Vec<String> {
     vec!["assetto_competizione".to_string(), "test".to_string()]
+}
+
+/// Get display name for a plugin
+fn get_plugin_display_name(plugin: &str) -> String {
+    match plugin {
+        "assetto_competizione" => "Assetto Corsa Competizione".to_string(),
+        "test" => "Test (Mock Data)".to_string(),
+        _ => plugin.to_string(),
+    }
 }
 
 /// Configure egui settings
