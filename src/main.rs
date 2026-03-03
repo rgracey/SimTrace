@@ -20,11 +20,12 @@ fn main() -> eframe::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    // Create native options
+    // Create native options with transparent window support
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 720.0])
-            .with_min_inner_size([800.0, 600.0]),
+            .with_min_inner_size([800.0, 600.0])
+            .with_transparent(true), // Enable OS-level window transparency
         ..Default::default()
     };
 

@@ -25,8 +25,15 @@ pub struct SimTraceApp {
 impl SimTraceApp {
     /// Create a new SimTrace application
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // Configure egui
+        // Configure egui for transparency
         configure_egui(&cc.egui_ctx);
+
+        // Make main viewport background transparent
+        cc.egui_ctx.set_visuals(egui::Visuals {
+            panel_fill: egui::Color32::TRANSPARENT,
+            window_fill: egui::Color32::TRANSPARENT,
+            ..egui::Visuals::dark()
+        });
 
         // Try to load existing settings
         let (settings, _) = load_settings();
@@ -369,10 +376,13 @@ fn render_overlay_viewport(
         });
 
         // Render content with semi-transparent background
+        // Note: frame.set_window_alpha() only works on main viewport in eframe 0.29
+        // For sub-viewports, we need to manually draw a semi-transparent background
         egui::CentralPanel::default()
             .frame(egui::Frame::none().fill(egui::Color32::TRANSPARENT))
             .show(ctx, |ui| {
                 // Draw semi-transparent background for the entire window
+                // This simulates window-level opacity for the sub-viewport
                 let bg_alpha = (255.0 * opacity) as u8;
                 let bg_color = egui::Color32::from_rgba_unmultiplied(0, 0, 0, bg_alpha);
                 ui.painter()
