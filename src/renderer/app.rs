@@ -191,18 +191,18 @@ impl eframe::App for SimTraceApp {
                 );
                 if gear_resp.clicked() { self.config_open = !self.config_open; }
 
-                // ── Content card — same x-bounds as bar ─────────────────────
+                // ── Content card — stadium shape (rounded right cap) ─────────
                 let content_rect = egui::Rect::from_min_max(
                     egui::pos2(screen.min.x + pad, screen.min.y + bar_h),
                     egui::pos2(screen.max.x - pad, screen.max.y - pad),
                 );
-                ui.painter().rect_filled(
-                    content_rect, 5.0, with_alpha(CARD_BG, a),
-                );
-                ui.painter().rect_stroke(
-                    content_rect, 5.0,
+                // Cap radius: half the card height → perfect semicircle on the right
+                let cap_r = content_rect.height() / 2.0;
+                ui.painter().add(egui::Shape::convex_polygon(
+                    stadium_path(content_rect, 5.0, cap_r),
+                    with_alpha(CARD_BG, a),
                     egui::Stroke::new(1.0, with_alpha(BORDER, a)),
-                );
+                ));
 
                 if self.running {
                     let mut content_ui = ui.child_ui(
@@ -213,6 +213,7 @@ impl eframe::App for SimTraceApp {
                     draw_telemetry(
                         &mut content_ui, &mut self.settings,
                         buffer.as_ref(), self.current_steering, a,
+                        cap_r,
                     );
                 }
 
@@ -253,6 +254,7 @@ fn draw_telemetry(
     buffer: Option<&Arc<crate::core::TelemetryBuffer>>,
     current_steering: f32,
     a: u8,
+    cap_r: f32,
 ) {
     let opacity  = settings.overlay.opacity;
     let available = ui.available_rect_before_wrap();
@@ -270,8 +272,8 @@ fn draw_telemetry(
     let bar_pad  = 10.0_f32;
     let bars_col_w = bar_w * 3.0 + bar_gap * 2.0 + bar_pad * 2.0;
 
-    let radius      = ((available.height() - 24.0) / 2.0 * 0.72).max(22.0);
-    let wheel_col_w = (radius * 2.8).min(available.width() * 0.30);
+    // Wheel column matches the stadium cap exactly (cap_r from content_rect, minus shrink)
+    let wheel_col_w = (cap_r - 4.0) * 2.0;
     let graph_w     = (available.width() - bars_col_w - wheel_col_w - 16.0).max(40.0);
     let graph_h     = (available.height() - 20.0).max(30.0);
 
@@ -355,10 +357,10 @@ fn draw_telemetry(
         let (wheel_rect, _) = ui.allocate_exact_size(
             egui::vec2(wheel_col_w, available.height()), egui::Sense::hover(),
         );
-        let center       = egui::pos2(wheel_rect.center().x, wheel_rect.center().y - 8.0);
-        // Leave enough margin for the stroke width (thickness ≈ radius * 0.28)
-        // so the ring doesn't clip the column edge.
-        let wheel_radius = (wheel_col_w / 2.0 * 0.72 - 2.0).max(10.0);
+        // Center the wheel in the cap — vertically centred, horizontally at cap centre
+        let center       = wheel_rect.center();
+        // Fit inside the cap with margin for stroke (thickness ≈ radius * 0.28)
+        let wheel_radius = (wheel_col_w / 2.0 * 0.64).max(10.0);
 
         crate::renderer::SteeringWheel::draw(
             ui.painter(), center, wheel_radius, current_steering, opacity,
@@ -580,4 +582,54 @@ fn save_settings(settings: &AppSettings) -> Result<(), anyhow::Error> {
         .ok_or_else(|| anyhow::anyhow!("No config dir"))?;
     if let Some(p) = path.parent() { std::fs::create_dir_all(p)?; }
     settings.save(&path)
+}
+
+// ── Stadium shape ─────────────────────────────────────────────────────────────
+// Flat-left rectangle with a semicircular right cap.
+// cap_r ≤ rect.height()/2 keeps the shape convex.
+fn stadium_path(rect: egui::Rect, left_r: f32, cap_r: f32) -> Vec<egui::Pos2> {
+    use std::f32::consts::{FRAC_PI_2, PI};
+    let cap_r  = cap_r.min(rect.height() / 2.0);
+    let cx     = rect.max.x - cap_r;   // arc centre x
+    let cy     = rect.center().y;       // arc centre y
+    let cap_ty = cy - cap_r;            // arc top y
+    let cap_by = cy + cap_r;            // arc bottom y
+
+    let mut pts = Vec::with_capacity(100);
+    let corners = 8usize;
+    let arc_pts = 48usize;
+
+    // Top-left corner (π → 3π/2)
+    let tl = egui::pos2(rect.min.x + left_r, rect.min.y + left_r);
+    for i in 0..=corners {
+        let a = PI + (i as f32 / corners as f32) * FRAC_PI_2;
+        pts.push(egui::pos2(tl.x + left_r * a.cos(), tl.y + left_r * a.sin()));
+    }
+
+    // Top edge → right shoulder
+    pts.push(egui::pos2(cx, rect.min.y));
+    if cap_ty > rect.min.y {
+        pts.push(egui::pos2(cx, cap_ty));
+    }
+
+    // Right semicircle (-π/2 → π/2)
+    for i in 0..=arc_pts {
+        let a = -FRAC_PI_2 + (i as f32 / arc_pts as f32) * PI;
+        pts.push(egui::pos2(cx + cap_r * a.cos(), cy + cap_r * a.sin()));
+    }
+
+    // Right shoulder → bottom edge
+    if cap_by < rect.max.y {
+        pts.push(egui::pos2(cx, rect.max.y));
+    }
+    pts.push(egui::pos2(rect.min.x + left_r, rect.max.y));
+
+    // Bottom-left corner (π/2 → π)
+    let bl = egui::pos2(rect.min.x + left_r, rect.max.y - left_r);
+    for i in 0..=corners {
+        let a = FRAC_PI_2 + (i as f32 / corners as f32) * FRAC_PI_2;
+        pts.push(egui::pos2(bl.x + left_r * a.cos(), bl.y + left_r * a.sin()));
+    }
+
+    pts
 }
