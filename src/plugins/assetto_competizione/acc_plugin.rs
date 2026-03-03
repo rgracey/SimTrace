@@ -116,6 +116,7 @@ impl GamePlugin for AccPlugin {
 
 /// Read car and track names from static shared memory (best-effort).
 /// Returns ("", "") if ACC is not running.
+#[allow(dead_code)]
 pub fn read_session_names() -> (String, String) {
     match AccSharedMemory::open() {
         Ok(mem) => {

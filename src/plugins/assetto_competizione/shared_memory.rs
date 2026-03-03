@@ -1,4 +1,5 @@
 //! Windows shared memory accessor for ACC
+#![allow(dead_code)]
 //!
 //! Opens the three ACC memory-mapped files and provides typed read-only references.
 
@@ -29,12 +30,20 @@ fn to_wide(s: &str) -> Vec<u16> {
 unsafe fn open_mapping(name: &str) -> Option<HANDLE> {
     let wide = to_wide(name);
     let h = OpenFileMappingW(FILE_MAP_READ, 0, wide.as_ptr());
-    if h.is_null() { None } else { Some(h) }
+    if h.is_null() {
+        None
+    } else {
+        Some(h)
+    }
 }
 
 unsafe fn map_view<T>(handle: HANDLE) -> Option<*const T> {
     let p = MapViewOfFile(handle, FILE_MAP_READ, 0, 0, 0) as *const T;
-    if p.is_null() { None } else { Some(p) }
+    if p.is_null() {
+        None
+    } else {
+        Some(p)
+    }
 }
 
 impl AccSharedMemory {
@@ -61,9 +70,15 @@ impl AccSharedMemory {
             let sp = map_view::<SPageFileStatic>(sh);
 
             if pp.is_none() || gp.is_none() || sp.is_none() {
-                if let Some(p) = pp { UnmapViewOfFile(p as *mut _); }
-                if let Some(p) = gp { UnmapViewOfFile(p as *mut _); }
-                if let Some(p) = sp { UnmapViewOfFile(p as *mut _); }
+                if let Some(p) = pp {
+                    UnmapViewOfFile(p as *mut _);
+                }
+                if let Some(p) = gp {
+                    UnmapViewOfFile(p as *mut _);
+                }
+                if let Some(p) = sp {
+                    UnmapViewOfFile(p as *mut _);
+                }
                 CloseHandle(ph);
                 CloseHandle(gh);
                 CloseHandle(sh);

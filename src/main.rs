@@ -27,7 +27,10 @@ fn main() -> eframe::Result<()> {
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([saved.overlay.width, saved.overlay.height])
-            .with_position(egui::pos2(saved.overlay.position_x, saved.overlay.position_y))
+            .with_position(egui::pos2(
+                saved.overlay.position_x,
+                saved.overlay.position_y,
+            ))
             .with_decorations(false)
             .with_transparent(true)
             .with_always_on_top()

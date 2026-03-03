@@ -15,6 +15,7 @@ pub struct TraceGraph<'a> {
 
 impl<'a> TraceGraph<'a> {
     /// Create a new trace graph renderer with buffer
+    #[allow(dead_code)]
     pub fn new(
         buffer: &'a TelemetryBuffer,
         settings: &'a GraphSettings,
@@ -45,6 +46,7 @@ impl<'a> TraceGraph<'a> {
     }
 
     /// Render the trace graph
+    #[allow(dead_code)]
     pub fn show(self, ui: &mut Ui, size: Vec2) -> Response {
         let (rect, response) = ui.allocate_exact_size(size, egui::Sense::hover());
         let painter = ui.painter().with_clip_rect(rect);

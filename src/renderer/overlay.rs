@@ -1,4 +1,5 @@
 //! Overlay widget for telemetry display
+#![allow(dead_code)]
 
 use eframe::egui;
 

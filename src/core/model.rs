@@ -1,4 +1,5 @@
 //! Common telemetry model - normalized data structure for all games
+#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 use std::time::Instant;

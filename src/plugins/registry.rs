@@ -1,4 +1,5 @@
 //! Plugin registry for managing available plugins
+#![allow(dead_code)]
 
 use crate::plugins::GamePlugin;
 use anyhow::Result;
@@ -24,18 +25,11 @@ impl PluginRegistry {
 
     /// Discover available plugins
     fn discover_plugins() -> Vec<String> {
-        let mut plugins = Vec::new();
-
-        // ACC is available on Windows
         #[cfg(windows)]
-        plugins.push("assetto_competizione".to_string());
+        return vec!["assetto_competizione".to_string()];
 
-        // Test plugin for non-Windows development/testing
         #[cfg(not(windows))]
-        plugins.push("test".to_string());
-
-        // Add more plugins here as they're implemented
-        plugins
+        return vec!["test".to_string()];
     }
 
     /// Get list of available plugin names
@@ -77,7 +71,7 @@ impl PluginRegistry {
     pub fn is_connected(&self) -> bool {
         self.active_plugin
             .as_ref()
-            .map_or(false, |p| p.is_connected())
+            .is_some_and(|p| p.is_connected())
     }
 }
 
@@ -93,9 +87,9 @@ mod tests {
 
     #[test]
     fn test_discover_plugins() {
-        let registry = PluginRegistry::new();
+        let _registry = PluginRegistry::new();
         // Should have at least ACC on Windows
         #[cfg(windows)]
-        assert!(!registry.available_plugins.is_empty());
+        assert!(!_registry.available_plugins.is_empty());
     }
 }

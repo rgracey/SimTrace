@@ -161,7 +161,9 @@ impl AppSettings {
             .map(|p| p.join("simtrace").join("settings.toml"))
             .or_else(|| dirs::home_dir().map(|p| p.join(".simtrace").join("settings.toml")));
         if let Some(p) = path {
-            if let Ok(s) = Self::load(&p) { return s; }
+            if let Ok(s) = Self::load(&p) {
+                return s;
+            }
         }
         Self::default()
     }

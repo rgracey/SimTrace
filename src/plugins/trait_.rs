@@ -1,4 +1,5 @@
 //! Game plugin trait definition
+#![allow(dead_code)]
 
 use anyhow::Result;
 
@@ -50,7 +51,9 @@ pub fn create_plugin(name: &str) -> Option<Box<dyn GamePlugin>> {
         "assetto_competizione" | "assetto corsa competizione" | "acc" => {
             #[cfg(windows)]
             {
-                Some(Box::new(crate::plugins::assetto_competizione::AccPlugin::new()))
+                Some(Box::new(
+                    crate::plugins::assetto_competizione::AccPlugin::new(),
+                ))
             }
             #[cfg(not(windows))]
             {

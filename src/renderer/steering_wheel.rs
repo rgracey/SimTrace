@@ -16,7 +16,10 @@ impl SteeringWheel {
         let mut ring: Vec<Pos2> = (0..RING_STEPS)
             .map(|i| {
                 let angle = (i as f32 / RING_STEPS as f32) * TAU;
-                Pos2::new(center.x + radius * angle.cos(), center.y + radius * angle.sin())
+                Pos2::new(
+                    center.x + radius * angle.cos(),
+                    center.y + radius * angle.sin(),
+                )
             })
             .collect();
         ring.push(ring[0]); // close the loop
@@ -35,7 +38,10 @@ impl SteeringWheel {
             let arc: Vec<Pos2> = (0..=steps)
                 .map(|i| {
                     let angle = start + (i as f32 / steps as f32) * sweep_deg.to_radians();
-                    Pos2::new(center.x + radius * angle.cos(), center.y + radius * angle.sin())
+                    Pos2::new(
+                        center.x + radius * angle.cos(),
+                        center.y + radius * angle.sin(),
+                    )
                 })
                 .collect();
             painter.add(Shape::line(
@@ -46,11 +52,19 @@ impl SteeringWheel {
 
         // Dot at tip of sweep
         let tip = Pos2::new(center.x + radius * end.cos(), center.y + radius * end.sin());
-        painter.circle_filled(tip, thickness * 0.75, Color32::from_rgba_unmultiplied(255, 255, 255, a));
+        painter.circle_filled(
+            tip,
+            thickness * 0.75,
+            Color32::from_rgba_unmultiplied(255, 255, 255, a),
+        );
 
         // Fixed centre blip at 12 o'clock (marks zero/straight-ahead)
         let top = Pos2::new(center.x, center.y - radius);
-        painter.circle_filled(top, thickness * 0.45, Color32::from_rgba_unmultiplied(130, 130, 130, a));
+        painter.circle_filled(
+            top,
+            thickness * 0.45,
+            Color32::from_rgba_unmultiplied(130, 130, 130, a),
+        );
 
         // If > one full rotation, show the angle in the centre so the driver knows where they are
         if angle_deg.abs() > 360.0 {

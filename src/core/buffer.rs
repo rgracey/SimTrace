@@ -1,4 +1,5 @@
 //! Telemetry buffer - stores telemetry points with a sliding time window
+#![allow(dead_code)]
 
 use std::sync::RwLock;
 use std::time::Duration;

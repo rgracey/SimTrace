@@ -1,4 +1,5 @@
 //! Data collector - polls game plugin and feeds telemetry buffer
+#![allow(dead_code)]
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -104,6 +105,6 @@ mod tests {
     fn test_collector_creation() {
         let config = CollectorConfig::default();
         let collector = DataCollector::new(config);
-        assert!(collector.is_connected() == false);
+        assert!(!collector.is_connected());
     }
 }

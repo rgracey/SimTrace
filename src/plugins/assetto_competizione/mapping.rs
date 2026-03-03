@@ -1,4 +1,5 @@
 //! ACC shared memory struct layout (must match ACC SDK exactly)
+#![allow(dead_code)]
 //!
 //! File mapping names: "Local\\acpmf_physics", "Local\\acpmf_graphics", "Local\\acpmf_static"
 //! wchar_t → u16 (2 bytes on Windows)
@@ -16,83 +17,83 @@ pub mod status {
 #[derive(Debug, Clone, Copy)]
 pub struct SPageFilePhysics {
     pub packet_id: i32,
-    pub gas: f32,               // throttle 0.0–1.0
-    pub brake: f32,             // brake 0.0–1.0
+    pub gas: f32,   // throttle 0.0–1.0
+    pub brake: f32, // brake 0.0–1.0
     pub fuel: f32,
-    pub gear: i32,              // 0=R, 1=N, 2=1st … 8=7th
+    pub gear: i32, // 0=R, 1=N, 2=1st … 8=7th
     pub rpms: i32,
-    pub steer_angle: f32,       // steering wheel angle in radians
+    pub steer_angle: f32, // steering wheel angle in radians
     pub speed_kmh: f32,
     pub velocity: [f32; 3],
     pub acc_g: [f32; 3],
     pub wheel_slip: [f32; 4],
-    pub wheel_load: [f32; 4],       // deprecated
+    pub wheel_load: [f32; 4], // deprecated
     pub wheels_pressure: [f32; 4],
     pub wheel_angular_speed: [f32; 4],
     pub tyre_wear: [f32; 4],        // deprecated
     pub tyre_dirty_level: [f32; 4], // deprecated
     pub tyre_core_temperature: [f32; 4],
-    pub camber_rad: [f32; 4],       // deprecated
+    pub camber_rad: [f32; 4], // deprecated
     pub suspension_travel: [f32; 4],
-    pub drs: f32,                   // deprecated
-    pub tc: f32,                    // TC actuation 0.0–1.0
+    pub drs: f32, // deprecated
+    pub tc: f32,  // TC actuation 0.0–1.0
     pub heading: f32,
     pub pitch: f32,
     pub roll: f32,
-    pub cg_height: f32,             // deprecated
+    pub cg_height: f32, // deprecated
     pub car_damage: [f32; 5],
-    pub number_of_tyres_out: i32,   // deprecated
+    pub number_of_tyres_out: i32, // deprecated
     pub pit_limiter_on: i32,
-    pub abs: f32,                   // ABS actuation 0.0–1.0
-    pub kers_charge: f32,           // deprecated
-    pub kers_input: f32,            // deprecated
+    pub abs: f32,         // ABS actuation 0.0–1.0
+    pub kers_charge: f32, // deprecated
+    pub kers_input: f32,  // deprecated
     pub auto_shifter_on: i32,
-    pub ride_height: [f32; 2],      // deprecated
+    pub ride_height: [f32; 2], // deprecated
     pub turbo_boost: f32,
-    pub ballast: f32,               // deprecated
-    pub air_density: f32,           // deprecated
+    pub ballast: f32,     // deprecated
+    pub air_density: f32, // deprecated
     pub air_temp: f32,
     pub road_temp: f32,
     pub local_angular_vel: [f32; 3],
     pub final_ff: f32,
-    pub performance_meter: f32,     // deprecated
-    pub engine_brake: i32,          // deprecated
-    pub ers_recovery_level: i32,    // deprecated
-    pub ers_power_level: i32,       // deprecated
-    pub ers_heat_charging: i32,     // deprecated
-    pub ers_is_charging: i32,       // deprecated
-    pub kers_current_kj: f32,       // deprecated
-    pub drs_available: i32,         // deprecated
-    pub drs_enabled: i32,           // deprecated
+    pub performance_meter: f32,  // deprecated
+    pub engine_brake: i32,       // deprecated
+    pub ers_recovery_level: i32, // deprecated
+    pub ers_power_level: i32,    // deprecated
+    pub ers_heat_charging: i32,  // deprecated
+    pub ers_is_charging: i32,    // deprecated
+    pub kers_current_kj: f32,    // deprecated
+    pub drs_available: i32,      // deprecated
+    pub drs_enabled: i32,        // deprecated
     pub brake_temp: [f32; 4],
-    pub clutch: f32,                // clutch pedal 0.0–1.0
-    pub tyre_temp_i: [f32; 4],      // deprecated
-    pub tyre_temp_m: [f32; 4],      // deprecated
-    pub tyre_temp_o: [f32; 4],      // deprecated
+    pub clutch: f32,           // clutch pedal 0.0–1.0
+    pub tyre_temp_i: [f32; 4], // deprecated
+    pub tyre_temp_m: [f32; 4], // deprecated
+    pub tyre_temp_o: [f32; 4], // deprecated
     pub is_ai_controlled: i32,
     pub tyre_contact_point: [[f32; 3]; 4],
     pub tyre_contact_normal: [[f32; 3]; 4],
     pub tyre_contact_heading: [[f32; 3]; 4],
     pub brake_bias: f32,
     pub local_velocity: [f32; 3],
-    pub p2p_activations: i32,       // deprecated
-    pub p2p_status: i32,            // deprecated
+    pub p2p_activations: i32, // deprecated
+    pub p2p_status: i32,      // deprecated
     pub current_max_rpm: i32,
-    pub mz: [f32; 4],               // deprecated
-    pub fx: [f32; 4],               // deprecated
-    pub fy: [f32; 4],               // deprecated
+    pub mz: [f32; 4], // deprecated
+    pub fx: [f32; 4], // deprecated
+    pub fy: [f32; 4], // deprecated
     pub slip_ratio: [f32; 4],
     pub slip_angle: [f32; 4],
-    pub tcin_action: i32,           // deprecated
-    pub abs_in_action: i32,         // deprecated
-    pub suspension_damage: [f32; 4],// deprecated
-    pub tyre_temp: [f32; 4],        // deprecated
+    pub tcin_action: i32,            // deprecated
+    pub abs_in_action: i32,          // deprecated
+    pub suspension_damage: [f32; 4], // deprecated
+    pub tyre_temp: [f32; 4],         // deprecated
     pub water_temp: f32,
-    pub brake_pressure: [f32; 4],   // deprecated
+    pub brake_pressure: [f32; 4], // deprecated
     pub front_brake_compound: i32,
     pub rear_brake_compound: i32,
-    pub pad_life: [f32; 4],         // deprecated
-    pub disc_life: [f32; 4],        // deprecated
+    pub pad_life: [f32; 4],  // deprecated
+    pub disc_life: [f32; 4], // deprecated
     pub ignition_on: i32,
     pub starter_engine_on: i32,
     pub is_engine_running: i32,
@@ -124,7 +125,7 @@ pub struct SPageFilePhysics {
 #[derive(Debug, Clone, Copy)]
 pub struct SPageFileGraphic {
     pub packet_id: i32,
-    pub status: i32,   // see status:: constants
+    pub status: i32, // see status:: constants
     pub session: i32,
     pub current_time: [u16; 15],
     pub last_time: [u16; 15],
@@ -179,8 +180,8 @@ pub struct SPageFileStatic {
     pub player_nick: [u16; 33],
     // repr(C) inserts 2 bytes padding here to align i32 to 4 bytes
     pub sector_count: i32,
-    pub max_torque: f32,  // deprecated
-    pub max_power: f32,   // deprecated
+    pub max_torque: f32, // deprecated
+    pub max_power: f32,  // deprecated
     pub max_rpm: i32,
     pub max_fuel: f32,
 }

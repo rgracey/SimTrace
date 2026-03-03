@@ -33,7 +33,11 @@ impl MockPlugin {
         // Simulate throttle/brake pattern (like a chicane)
         let cycle = (self.simulation_time * 0.5).sin();
         let throttle = if cycle > 0.0 { cycle } else { 0.0 };
-        let brake = if cycle < -0.3 { (-cycle - 0.3).max(0.0) } else { 0.0 };
+        let brake = if cycle < -0.3 {
+            (-cycle - 0.3).max(0.0)
+        } else {
+            0.0
+        };
         let steering_angle = cycle * 180.0;
         let speed = (100.0 - brake * 80.0).max(20.0);
         let abs_active = brake > 0.6;
