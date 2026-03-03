@@ -11,6 +11,7 @@ pub struct AppSettings {
     pub graph: GraphSettings,
     pub colors: ColorScheme,
     pub steering_wheel: SteeringWheelSettings,
+    pub overlay: OverlaySettings,
 }
 
 /// Application window configuration
@@ -68,6 +69,23 @@ pub struct SteeringWheelSettings {
     pub show_angle: bool,
 }
 
+/// Overlay widget settings
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OverlaySettings {
+    /// Widget width in pixels
+    pub width: f32,
+    /// Widget height in pixels
+    pub height: f32,
+    /// Window position x (screen coordinates)
+    pub position_x: f32,
+    /// Window position y (screen coordinates)
+    pub position_y: f32,
+    /// Opacity (0.0 to 1.0)
+    pub opacity: f32,
+    /// Whether the widget is pinned/visible
+    pub pinned: bool,
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -104,6 +122,14 @@ impl Default for AppSettings {
                 center_color: "#666666".to_string(),
                 text_color: "#FFFFFF".to_string(),
                 show_angle: false,
+            },
+            overlay: OverlaySettings {
+                width: 600.0,
+                height: 400.0,
+                position_x: 100.0,
+                position_y: 100.0,
+                opacity: 0.95,
+                pinned: false,
             },
         }
     }
