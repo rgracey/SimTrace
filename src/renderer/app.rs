@@ -236,6 +236,15 @@ impl eframe::App for SimTraceApp {
                         buffer.as_ref(), self.current_steering, a,
                         cap_r,
                     );
+                } else {
+                    let font_size = (content_rect.height() * 0.28).clamp(14.0, 42.0);
+                    ui.painter().text(
+                        content_rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "STOPPED",
+                        egui::FontId::monospace(font_size),
+                        with_alpha(egui::Color32::from_gray(55), a),
+                    );
                 }
 
                 // ── Resize handle — bottom-right corner of the rectangle ──────
