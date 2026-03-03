@@ -9,7 +9,7 @@ use egui::color_picker::{color_edit_button_srgba, Alpha};
 // ── Palette ──────────────────────────────────────────────────────────────────
 const BAR_BG:      egui::Color32 = egui::Color32::from_rgb(13, 13, 13);
 const CARD_BG:     egui::Color32 = egui::Color32::from_rgb(16, 16, 16);
-const BORDER:      egui::Color32 = egui::Color32::from_rgb(40, 40, 40);
+const BORDER:      egui::Color32 = egui::Color32::from_rgb(26, 26, 26);
 const LABEL_DIM:   egui::Color32 = egui::Color32::from_rgb(90, 90, 90);
 const LABEL_MID:   egui::Color32 = egui::Color32::from_rgb(140, 140, 140);
 const ACCENT_RED:  egui::Color32 = egui::Color32::from_rgb(220, 45, 45);
