@@ -346,23 +346,38 @@ fn render_overlay_viewport(
     _current_abs_active: bool,
     is_open: bool,
 ) {
+    if !is_open {
+        return;
+    }
+
     let alpha = settings.overlay.opacity;
+    
+    // Debug: log viewport creation
+    tracing::info!(
+        "Creating overlay viewport: pos=[{}, {}], size=[{}, {}]",
+        settings.overlay.position_x,
+        settings.overlay.position_y,
+        settings.overlay.width,
+        settings.overlay.height
+    );
+
+    // Configure viewport to be a separate native window
     let viewport_builder = egui::ViewportBuilder::default()
-        .with_title("")
+        .with_title("SimTrace Overlay")
         .with_inner_size([settings.overlay.width, settings.overlay.height])
         .with_position([settings.overlay.position_x, settings.overlay.position_y])
-        .with_decorations(false)
-        .with_transparent(true)
-        .with_visible(is_open)
-        .with_active(true);
+        .with_decorations(false)  // Borderless
+        .with_transparent(true)   // Transparent window
+        .with_visible(true)       // Always visible when is_open is true
+        .with_active(true)        // Activate the viewport
+        .with_always_on_top();    // Keep on top
 
-    ctx.show_viewport_immediate(overlay_viewport_id(), viewport_builder, |ctx, _class| {
-        // Only render if the viewport is active/open
-        if !is_open {
-            return;
-        }
-
-        // Set the background to transparent for this viewport
+    // Show the viewport - this creates a separate native window
+    let viewport_id = overlay_viewport_id();
+    ctx.show_viewport_immediate(viewport_id, viewport_builder, |ctx, _class| {
+        tracing::info!("Viewport callback entered");
+        
+        // Set transparent visuals for this viewport
         ctx.set_visuals(egui::Visuals {
             panel_fill: egui::Color32::TRANSPARENT,
             ..egui::Visuals::dark()
@@ -371,7 +386,7 @@ fn render_overlay_viewport(
         egui::CentralPanel::default()
             .frame(egui::Frame::none().fill(egui::Color32::TRANSPARENT))
             .show(ctx, |ui| {
-                ui.with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
+                ui.vertical(|ui| {
                     // Add some padding
                     ui.add_space(8.0);
 
