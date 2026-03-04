@@ -53,7 +53,7 @@ impl DataCollector {
         if !is_connected {
             let should_try = self
                 .last_connect_attempt
-                .map_or(true, |t| t.elapsed() >= RECONNECT_INTERVAL);
+                .is_none_or(|t| t.elapsed() >= RECONNECT_INTERVAL);
 
             if should_try {
                 self.last_connect_attempt = Some(Instant::now());
