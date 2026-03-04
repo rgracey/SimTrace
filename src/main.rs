@@ -98,7 +98,11 @@ fn init_logging(
             let (writer, guard) = tracing_appender::non_blocking(appender);
             tracing_subscriber::registry()
                 .with(filter)
-                .with(tracing_subscriber::fmt::layer().with_writer(writer).with_ansi(false))
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .with_writer(writer)
+                        .with_ansi(false),
+                )
                 .init();
             Some(guard)
         }
