@@ -2,6 +2,8 @@
 
 A lightweight sim racing telemetry overlay. Displays pedal inputs, steering angle, gear, and speed in real time as a transparent overlay on top of your game.
 
+![SimTrace UI demo](docs/images/SimTrace.png)
+
 ## Features
 
 - **Pedal trace graph** — scrolling throttle, brake, and clutch history
