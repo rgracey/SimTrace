@@ -67,6 +67,34 @@ fn default_clutch_color() -> String {
     "#AA44FF".to_string()
 }
 
+/// Pre-parsed version of [`ColorScheme`] holding `Color32` values ready for rendering.
+///
+/// Derive once per settings change via [`ParsedColors::from_scheme`] instead of
+/// calling `AppSettings::parse_color` (hex → Color32) on every frame.
+pub struct ParsedColors {
+    pub throttle: egui::Color32,
+    pub brake: egui::Color32,
+    pub abs_active: egui::Color32,
+    pub clutch: egui::Color32,
+    pub background: egui::Color32,
+    pub grid: egui::Color32,
+    pub text: egui::Color32,
+}
+
+impl ParsedColors {
+    pub fn from_scheme(scheme: &ColorScheme) -> Self {
+        Self {
+            throttle: AppSettings::parse_color(&scheme.throttle),
+            brake: AppSettings::parse_color(&scheme.brake),
+            abs_active: AppSettings::parse_color(&scheme.abs_active),
+            clutch: AppSettings::parse_color(&scheme.clutch),
+            background: AppSettings::parse_color(&scheme.background),
+            grid: AppSettings::parse_color(&scheme.grid),
+            text: AppSettings::parse_color(&scheme.text),
+        }
+    }
+}
+
 /// Overlay window geometry and appearance.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OverlaySettings {

@@ -1,6 +1,6 @@
 //! Main application
 
-use crate::config::AppSettings;
+use crate::config::{AppSettings, ParsedColors};
 use crate::core::{DataCollector, TelemetryBuffer};
 use eframe::egui;
 use egui::color_picker::{color_edit_button_srgba, Alpha};
@@ -49,6 +49,8 @@ pub struct SimTraceApp {
     active_plugin: String,
     /// Set when the user saves; drives a brief "Saved" toast
     save_toast: Option<std::time::Instant>,
+    /// Colors pre-parsed from `settings.colors`; re-derived when config changes them.
+    parsed_colors: ParsedColors,
 }
 
 impl SimTraceApp {
@@ -61,6 +63,7 @@ impl SimTraceApp {
 
         let settings = crate::config::AppSettings::load_or_default();
         let active_plugin = settings.collector.plugin.clone();
+        let parsed_colors = ParsedColors::from_scheme(&settings.colors);
         Self {
             settings,
             buffer: Arc::new(TelemetryBuffer::new(std::time::Duration::from_secs(
@@ -74,6 +77,7 @@ impl SimTraceApp {
             bar_alpha: 1.0,
             active_plugin,
             save_toast: None,
+            parsed_colors,
         }
     }
 
@@ -393,6 +397,7 @@ impl eframe::App for SimTraceApp {
                     draw_telemetry(
                         &mut content_ui,
                         &mut self.settings,
+                        &self.parsed_colors,
                         buffer.as_ref(),
                         self.current_steering,
                         a,
@@ -469,6 +474,8 @@ impl eframe::App for SimTraceApp {
                             buffer.as_ref(),
                         );
                     });
+                    // Re-derive parsed colors in case the color pickers changed them.
+                    self.parsed_colors = ParsedColors::from_scheme(&self.settings.colors);
                     if self.running && self.poller.is_none() {
                         self.start();
                     }
@@ -482,6 +489,7 @@ impl eframe::App for SimTraceApp {
 fn draw_telemetry(
     ui: &mut egui::Ui,
     settings: &mut AppSettings,
+    colors: &ParsedColors,
     buffer: Option<&Arc<crate::core::TelemetryBuffer>>,
     current_steering: f32,
     a: u8,
@@ -523,7 +531,7 @@ fn draw_telemetry(
         crate::renderer::TraceGraph::new(
             buffer.map(|v| &**v),
             &settings.graph,
-            &settings.colors,
+            colors,
             opacity,
         )
         .show(ui, egui::vec2(graph_w, graph_h));
@@ -539,18 +547,15 @@ fn draw_telemetry(
         let p = ui.painter();
 
         let brake_color = if abs_on && settings.graph.show_abs {
-            AppSettings::parse_color(&settings.colors.abs_active)
+            colors.abs_active
         } else {
-            AppSettings::parse_color(&settings.colors.brake)
+            colors.brake
         };
 
         let specs: &[(f32, egui::Color32)] = &[
-            (clutch, AppSettings::parse_color(&settings.colors.clutch)),
+            (clutch, colors.clutch),
             (brake, brake_color),
-            (
-                throttle,
-                AppSettings::parse_color(&settings.colors.throttle),
-            ),
+            (throttle, colors.throttle),
         ];
 
         let label_h = 16.0_f32;

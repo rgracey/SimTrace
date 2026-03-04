@@ -4,16 +4,16 @@
 //! Point x-coordinates are derived from timestamps so rendering stays correct
 //! even when poll intervals are uneven.
 
-use egui::{Pos2, Rect, Response, Stroke, Ui, Vec2};
+use egui::{Color32, Pos2, Rect, Response, Stroke, Ui, Vec2};
 
-use crate::config::{AppSettings, ColorScheme, GraphSettings};
+use crate::config::{GraphSettings, ParsedColors};
 use crate::core::{TelemetryBuffer, TelemetryPoint};
 
 /// Renders a scrolling trace of pedal inputs against time.
 pub struct TraceGraph<'a> {
     buffer: Option<&'a TelemetryBuffer>,
     settings: &'a GraphSettings,
-    colors: &'a ColorScheme,
+    colors: &'a ParsedColors,
     opacity: f32,
 }
 
@@ -21,7 +21,7 @@ impl<'a> TraceGraph<'a> {
     pub fn new(
         buffer: Option<&'a TelemetryBuffer>,
         settings: &'a GraphSettings,
-        colors: &'a ColorScheme,
+        colors: &'a ParsedColors,
         opacity: f32,
     ) -> Self {
         Self {
@@ -43,7 +43,7 @@ impl<'a> TraceGraph<'a> {
         );
         let painter = ui.painter().with_clip_rect(rect);
 
-        painter.rect_filled(rect, 0.0, self.apply_opacity(&self.colors.background));
+        painter.rect_filled(rect, 0.0, self.apply_opacity(self.colors.background));
 
         if self.settings.show_grid {
             self.draw_grid(&painter, rect);
@@ -68,7 +68,7 @@ impl<'a> TraceGraph<'a> {
                         now,
                         window_dur,
                         |p| p.telemetry.clutch,
-                        &self.colors.clutch,
+                        self.colors.clutch,
                     );
                 }
                 if self.settings.show_throttle {
@@ -79,7 +79,7 @@ impl<'a> TraceGraph<'a> {
                         now,
                         window_dur,
                         |p| p.telemetry.throttle,
-                        &self.colors.throttle,
+                        self.colors.throttle,
                     );
                 }
                 if self.settings.show_brake {
@@ -96,7 +96,7 @@ impl<'a> TraceGraph<'a> {
     }
 
     fn draw_grid(&self, painter: &egui::Painter, rect: Rect) {
-        let stroke = Stroke::new(1.0, self.apply_opacity(&self.colors.grid));
+        let stroke = Stroke::new(1.0, self.apply_opacity(self.colors.grid));
 
         for i in 0..=4 {
             let y = rect.min.y + rect.height() * i as f32 / 4.0;
@@ -122,9 +122,9 @@ impl<'a> TraceGraph<'a> {
         now: std::time::Instant,
         window_dur: std::time::Duration,
         value_fn: impl Fn(&TelemetryPoint) -> f32,
-        color_hex: &str,
+        color: Color32,
     ) {
-        let stroke = Stroke::new(self.settings.line_width, self.apply_opacity(color_hex));
+        let stroke = Stroke::new(self.settings.line_width, self.apply_opacity(color));
         let line_points: Vec<Pos2> = points
             .iter()
             .map(|p| {
@@ -182,41 +182,39 @@ impl<'a> TraceGraph<'a> {
             if seg_pts.len() < 2 {
                 continue;
             }
-            let color_hex = if abs_active && self.settings.show_abs {
-                &self.colors.abs_active
+            let color = if abs_active && self.settings.show_abs {
+                self.colors.abs_active
             } else {
-                &self.colors.brake
+                self.colors.brake
             };
             painter.add(egui::Shape::line(
                 seg_pts,
-                Stroke::new(self.settings.line_width, self.apply_opacity(color_hex)),
+                Stroke::new(self.settings.line_width, self.apply_opacity(color)),
             ));
         }
     }
 
     fn draw_legend(&self, painter: &egui::Painter, rect: Rect) {
-        let text_color = self.apply_opacity(&self.colors.text);
-        let bg = self
-            .apply_opacity(&self.colors.background)
-            .linear_multiply(0.8);
+        let text_color = self.apply_opacity(self.colors.text);
+        let bg = self.apply_opacity(self.colors.background).linear_multiply(0.8);
         let legend_rect =
             Rect::from_min_size(rect.min + Vec2::new(10.0, 10.0), Vec2::new(120.0, 90.0));
         painter.rect_filled(legend_rect, 4.0, bg);
 
         let entries = [
-            ("Throttle", self.colors.throttle.as_str()),
-            ("Brake", self.colors.brake.as_str()),
-            ("ABS", self.colors.abs_active.as_str()),
-            ("Clutch", self.colors.clutch.as_str()),
+            ("Throttle", self.colors.throttle),
+            ("Brake", self.colors.brake),
+            ("ABS", self.colors.abs_active),
+            ("Clutch", self.colors.clutch),
         ];
-        for (i, (label, color_hex)) in entries.iter().enumerate() {
+        for (i, (label, color)) in entries.iter().enumerate() {
             let y = legend_rect.min.y + 15.0 + i as f32 * 20.0;
             painter.line_segment(
                 [
                     Pos2::new(legend_rect.min.x + 5.0, y),
                     Pos2::new(legend_rect.min.x + 30.0, y),
                 ],
-                Stroke::new(2.0, self.apply_opacity(color_hex)),
+                Stroke::new(2.0, self.apply_opacity(*color)),
             );
             painter.text(
                 Pos2::new(legend_rect.min.x + 35.0, y - 5.0),
@@ -248,8 +246,8 @@ impl<'a> TraceGraph<'a> {
         rect.max.y - pad - ((rect.height() - 1.15 * pad) * value)
     }
 
-    fn apply_opacity(&self, color_hex: &str) -> egui::Color32 {
-        let [r, g, b, a] = AppSettings::parse_color(color_hex).to_array();
-        egui::Color32::from_rgba_unmultiplied(r, g, b, ((a as f32) * self.opacity) as u8)
+    fn apply_opacity(&self, color: Color32) -> Color32 {
+        let [r, g, b, a] = color.to_array();
+        Color32::from_rgba_unmultiplied(r, g, b, ((a as f32) * self.opacity) as u8)
     }
 }

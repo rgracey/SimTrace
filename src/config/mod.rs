@@ -2,4 +2,4 @@
 
 pub mod settings;
 
-pub use settings::{AppSettings, ColorScheme, GraphSettings};
+pub use settings::{AppSettings, GraphSettings, ParsedColors};
