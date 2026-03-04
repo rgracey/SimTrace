@@ -187,8 +187,7 @@ impl eframe::App for SimTraceApp {
         let fps = self.settings.graph.overlay_fps;
         ctx.request_repaint_after(std::time::Duration::from_secs_f64(1.0 / fps as f64));
         ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(
-            MIN_WIDTH,
-            MIN_HEIGHT,
+            MIN_WIDTH, MIN_HEIGHT,
         )));
 
         egui::CentralPanel::default()
