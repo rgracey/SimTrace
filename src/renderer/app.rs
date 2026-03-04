@@ -43,6 +43,8 @@ pub struct SimTraceApp {
     /// Background polling thread; `None` when stopped.
     poller: Option<PollerHandle>,
     current_steering: f32,
+    /// Half-lock angle in degrees from the active plugin's config (e.g. 450 for 900° wheel).
+    max_steering_angle: f32,
     running: bool,
     config_open: bool,
     minimized: bool,
@@ -67,6 +69,9 @@ impl SimTraceApp {
         let settings = crate::config::AppSettings::load_or_default();
         let active_plugin = settings.collector.plugin.clone();
         let parsed_colors = ParsedColors::from_scheme(&settings.colors);
+        let max_steering_angle = crate::plugins::create_plugin(&active_plugin)
+            .map(|p| p.get_config().max_steering_angle)
+            .unwrap_or(450.0);
         Self {
             settings,
             buffer: Arc::new(TelemetryBuffer::new(std::time::Duration::from_secs(
@@ -74,6 +79,7 @@ impl SimTraceApp {
             ))),
             poller: None,
             current_steering: 0.0,
+            max_steering_angle,
             running: true,
             config_open: false,
             minimized: false,
@@ -125,6 +131,9 @@ impl SimTraceApp {
         }
         self.buffer.clear();
         self.current_steering = 0.0;
+        self.max_steering_angle = crate::plugins::create_plugin(&plugin)
+            .map(|p| p.get_config().max_steering_angle)
+            .unwrap_or(450.0);
         self.active_plugin = plugin;
     }
 }
@@ -429,6 +438,7 @@ impl eframe::App for SimTraceApp {
                                 &self.parsed_colors,
                                 buffer.as_ref(),
                                 self.current_steering,
+                                self.max_steering_angle,
                                 a,
                                 cap_r,
                             );
@@ -525,6 +535,7 @@ fn draw_telemetry(
     colors: &ParsedColors,
     buffer: Option<&Arc<crate::core::TelemetryBuffer>>,
     current_steering: f32,
+    max_steering_angle: f32,
     a: u8,
     cap_r: f32,
 ) {
@@ -666,6 +677,7 @@ fn draw_telemetry(
             center,
             wheel_radius,
             current_steering,
+            max_steering_angle,
             opacity,
         );
 

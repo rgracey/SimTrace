@@ -6,7 +6,20 @@ use std::f32::consts::{FRAC_PI_2, TAU};
 pub struct SteeringWheel;
 
 impl SteeringWheel {
-    pub fn draw(painter: &Painter, center: Pos2, radius: f32, angle_deg: f32, opacity: f32) {
+    /// Draw the steering wheel widget.
+    ///
+    /// `angle_deg`  — current steering angle in degrees (negative = left).
+    /// `max_angle`  — half-lock in degrees (e.g. 450 for a 900° wheel).
+    ///                The visual sweep is normalised against this so full lock
+    ///                always places the dot at ±270° (3/9 o'clock position).
+    pub fn draw(
+        painter: &Painter,
+        center: Pos2,
+        radius: f32,
+        angle_deg: f32,
+        max_angle: f32,
+        opacity: f32,
+    ) {
         let a = (opacity * 255.0) as u8;
         let thickness = (radius * 0.28).max(5.0);
 
@@ -28,10 +41,11 @@ impl SteeringWheel {
             Stroke::new(thickness, Color32::from_rgba_unmultiplied(30, 30, 30, a)),
         ));
 
-        // Sweep arc — clamp to ±360° visually, the text handles the rest
-        let sweep_deg = angle_deg.clamp(-360.0, 360.0);
+        // Normalise against max_angle and map to ±270° visual sweep so that full
+        // lock always reaches the 3/9 o'clock position.
+        let max_angle = max_angle.max(1.0);
+        let sweep_deg = (angle_deg / max_angle).clamp(-1.0, 1.0) * 270.0;
         let start = -FRAC_PI_2; // 12 o'clock
-        let end = start + sweep_deg.to_radians();
 
         if sweep_deg.abs() > 0.5 {
             let steps = (sweep_deg.abs() as usize).max(4);
@@ -50,34 +64,15 @@ impl SteeringWheel {
             ));
         }
 
-        // Dot at tip of sweep
-        let tip = Pos2::new(center.x + radius * end.cos(), center.y + radius * end.sin());
-        painter.circle_filled(
-            tip,
-            thickness * 0.75,
-            Color32::from_rgba_unmultiplied(255, 255, 255, a),
-        );
-
         // Fixed centre tick at 12 o'clock (marks zero/straight-ahead) —
-        // a thin vertical line spanning the ring stroke width.
+        // a vertical line spanning the ring stroke width.
         let half = thickness * 0.5;
         painter.line_segment(
             [
                 Pos2::new(center.x, center.y - radius - half),
                 Pos2::new(center.x, center.y - radius + half),
             ],
-            Stroke::new(2.0, Color32::from_rgba_unmultiplied(242, 85, 85, a)),
+            Stroke::new(3.5, Color32::from_rgba_unmultiplied(242, 85, 85, a)),
         );
-
-        // If > one full rotation, show the angle in the centre so the driver knows where they are
-        if angle_deg.abs() > 360.0 {
-            painter.text(
-                center,
-                egui::Align2::CENTER_CENTER,
-                format!("{:.0}°", angle_deg),
-                egui::FontId::proportional((radius * 0.35).max(9.0)),
-                Color32::from_rgba_unmultiplied(200, 200, 200, a),
-            );
-        }
     }
 }
