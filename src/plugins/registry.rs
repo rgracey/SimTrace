@@ -37,22 +37,25 @@ impl PluginRegistry {
         &self.available_plugins
     }
 
-    /// Activate a plugin by name
+    /// Activate a plugin by name. Registers the plugin even if the initial
+    /// connection fails — the collector will retry automatically.
     pub fn activate(&mut self, name: &str) -> Result<()> {
-        // Disconnect existing plugin
         if let Some(ref mut plugin) = self.active_plugin {
             plugin.disconnect();
         }
+        self.active_plugin = None;
 
-        // Create new plugin
-        let plugin = crate::plugins::create_plugin(name)
+        let mut plugin = crate::plugins::create_plugin(name)
             .ok_or_else(|| anyhow::anyhow!("Plugin '{}' not found", name))?;
 
-        // Connect to game
-        let mut plugin = plugin;
-        plugin.connect()?;
+        if let Err(e) = plugin.connect() {
+            tracing::warn!(
+                "Initial connection to '{}' failed: {e} (will retry automatically)",
+                plugin.name()
+            );
+        }
 
-        info!("Activated plugin: {}", plugin.name());
+        info!("Plugin '{}' selected (connected: {})", plugin.name(), plugin.is_connected());
         self.active_plugin = Some(plugin);
         Ok(())
     }
