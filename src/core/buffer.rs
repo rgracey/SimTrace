@@ -63,13 +63,7 @@ impl TelemetryBuffer {
         self.data.write().unwrap().clear();
     }
 
-    /// Set the time window duration
-    pub fn set_window_duration(&self, _duration: Duration) {
-        // Note: window_duration is not mutable behind &self, so we skip pruning for now
-        // In a real implementation, use interior mutability or &mut self
-    }
-
-    /// Get current window duration
+    /// Returns the configured time window.
     pub fn window_duration(&self) -> Duration {
         self.window_duration
     }
@@ -118,44 +112,82 @@ mod tests {
     #[test]
     fn test_push_and_get() {
         let buffer = TelemetryBuffer::new(Duration::from_secs(10));
-        let telemetry = VehicleTelemetry {
-            throttle: 0.5,
-            brake: 0.0,
-            ..Default::default()
-        };
-
-        buffer.push(telemetry, false);
+        buffer.push(
+            VehicleTelemetry {
+                throttle: 0.5,
+                ..Default::default()
+            },
+            false,
+        );
         assert_eq!(buffer.len(), 1);
-
-        let points = buffer.get_points();
-        assert_eq!(points.len(), 1);
-        assert_eq!(points[0].telemetry.throttle, 0.5);
-    }
-
-    #[test]
-    fn test_window_pruning() {
-        let buffer = TelemetryBuffer::new(Duration::from_millis(100));
-
-        // Add points
-        for _ in 0..10 {
-            buffer.push(VehicleTelemetry::default(), false);
-            thread::sleep(Duration::from_millis(20));
-        }
-
-        // Wait for window to expire
-        thread::sleep(Duration::from_millis(150));
-
-        // Points should be pruned
-        assert!(buffer.len() <= 10);
+        assert_eq!(buffer.get_points()[0].telemetry.throttle, 0.5);
     }
 
     #[test]
     fn test_latest() {
         let buffer = TelemetryBuffer::new(Duration::from_secs(10));
-
         assert!(buffer.latest().is_none());
-
         buffer.push(VehicleTelemetry::default(), false);
         assert!(buffer.latest().is_some());
+    }
+
+    #[test]
+    fn test_clear_empties_buffer() {
+        let buffer = TelemetryBuffer::new(Duration::from_secs(10));
+        for _ in 0..5 {
+            buffer.push(VehicleTelemetry::default(), false);
+        }
+        assert_eq!(buffer.len(), 5);
+        buffer.clear();
+        assert_eq!(buffer.len(), 0);
+        assert!(buffer.is_empty());
+        assert!(buffer.latest().is_none());
+    }
+
+    #[test]
+    fn test_is_empty_on_new_buffer() {
+        let buffer = TelemetryBuffer::new(Duration::from_secs(10));
+        assert!(buffer.is_empty());
+        assert_eq!(buffer.len(), 0);
+    }
+
+    #[test]
+    fn test_min_points_preserved_after_window_expires() {
+        // Use a very short window so points expire quickly.
+        let buffer = TelemetryBuffer::new(Duration::from_millis(50));
+        let min_points = 10;
+
+        for _ in 0..(min_points + 5) {
+            buffer.push(VehicleTelemetry::default(), false);
+        }
+        assert_eq!(buffer.len(), min_points + 5);
+
+        // Wait for all existing points to fall outside the window.
+        thread::sleep(Duration::from_millis(100));
+
+        // A new push triggers pruning; the min_points floor should keep old entries.
+        buffer.push(VehicleTelemetry::default(), false);
+        assert!(
+            buffer.len() >= min_points,
+            "expected at least {} points, got {}",
+            min_points,
+            buffer.len()
+        );
+    }
+
+    #[test]
+    fn test_window_pruning_removes_old_points() {
+        let buffer = TelemetryBuffer::new(Duration::from_millis(50));
+        let min_points = 10;
+
+        // Overfill the buffer, then wait for points to age out.
+        for _ in 0..(min_points * 3) {
+            buffer.push(VehicleTelemetry::default(), false);
+        }
+        thread::sleep(Duration::from_millis(100));
+
+        // After a push, expired entries should be pruned down to min_points.
+        buffer.push(VehicleTelemetry::default(), false);
+        assert!(buffer.len() <= min_points + 1); // +1 for the point just pushed
     }
 }

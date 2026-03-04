@@ -6,6 +6,11 @@ use eframe::egui;
 use egui::color_picker::{color_edit_button_srgba, Alpha};
 use std::sync::{Arc, Mutex};
 
+// The buffer is kept larger than the maximum display window so the slider can
+// show the full range without data disappearing at the top.
+const BUFFER_CAPACITY_SECS: u64 = 60;
+const MAX_DISPLAY_WINDOW_SECS: f32 = 30.0;
+
 // ── Palette ──────────────────────────────────────────────────────────────────
 const BAR_BG: egui::Color32 = egui::Color32::from_rgb(13, 13, 13);
 const CARD_BG: egui::Color32 = egui::Color32::from_rgb(16, 16, 16);
@@ -36,7 +41,7 @@ impl SimTraceApp {
             ..egui::Visuals::dark()
         });
 
-        let (settings, _) = load_settings();
+        let settings = crate::config::AppSettings::load_or_default();
         let active_plugin = settings.collector.plugin.clone();
         Self {
             settings,
@@ -52,12 +57,9 @@ impl SimTraceApp {
 
     fn start(&mut self) {
         if self.collector.is_none() {
-            let cfg = crate::core::collector::CollectorConfig {
-                update_rate_hz: self.settings.collector.update_rate_hz,
-                // Hold 60s so the display window slider (max 30s) always has enough data
-                buffer_window_secs: 60,
-            };
-            self.collector = Some(Arc::new(Mutex::new(DataCollector::new(cfg))));
+            self.collector = Some(Arc::new(Mutex::new(DataCollector::new(
+                BUFFER_CAPACITY_SECS,
+            ))));
         }
         self.activate_plugin();
         self.running = true;
@@ -82,7 +84,7 @@ impl eframe::App for SimTraceApp {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        let _ = save_settings(&self.settings);
+        let _ = self.settings.save_to_config_path();
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -351,7 +353,12 @@ impl eframe::App for SimTraceApp {
                             .layout(egui::Layout::top_down(egui::Align::LEFT)),
                     );
                     egui::ScrollArea::vertical().show(&mut child, |ui| {
-                        draw_config(ui, &mut self.settings, &mut self.running, &mut self.save_toast);
+                        draw_config(
+                            ui,
+                            &mut self.settings,
+                            &mut self.running,
+                            &mut self.save_toast,
+                        );
                     });
                     if self.running && self.collector.is_none() {
                         self.start();
@@ -398,7 +405,7 @@ fn draw_telemetry(
     // No data arriving? Show overlay on graph area.
     let is_waiting = latest
         .as_ref()
-        .map_or(true, |p| p.captured_at.elapsed().as_secs_f32() > 2.0);
+        .is_none_or(|p| p.captured_at.elapsed().as_secs_f32() > 2.0);
     let graph_rect = egui::Rect::from_min_size(available.min, egui::vec2(graph_w, graph_h));
 
     ui.spacing_mut().item_spacing.x = 0.0;
@@ -613,7 +620,7 @@ fn draw_config(
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.add(styled_button("Save")).clicked() {
-                if let Err(e) = save_settings(settings) {
+                if let Err(e) = settings.save_to_config_path() {
                     tracing::error!("{e}");
                 } else {
                     *save_toast = Some(std::time::Instant::now());
@@ -625,7 +632,11 @@ fn draw_config(
     if let Some(t) = *save_toast {
         let elapsed = t.elapsed().as_secs_f32();
         if elapsed < 2.0 {
-            let fade = if elapsed > 1.5 { 1.0 - (elapsed - 1.5) / 0.5 } else { 1.0 };
+            let fade = if elapsed > 1.5 {
+                1.0 - (elapsed - 1.5) / 0.5
+            } else {
+                1.0
+            };
             let ta = (fade * 255.0) as u8;
             ui.label(
                 egui::RichText::new("Saved")
@@ -679,11 +690,19 @@ fn draw_config(
     slider_row(ui, "Opacity", &mut settings.overlay.opacity, 0.1..=1.0, "");
     slider_row_int(ui, "FPS", &mut settings.graph.overlay_fps, 10..=120, " fps");
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Time window").size(11.0).color(LABEL_MID));
+        ui.label(
+            egui::RichText::new("Time window")
+                .size(11.0)
+                .color(LABEL_MID),
+        );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let mut w = settings.graph.window_seconds as f32;
             if ui
-                .add(egui::Slider::new(&mut w, 3.0..=30.0).suffix(" s").show_value(true))
+                .add(
+                    egui::Slider::new(&mut w, 3.0..=MAX_DISPLAY_WINDOW_SECS)
+                        .suffix(" s")
+                        .show_value(true),
+                )
                 .changed()
             {
                 settings.graph.window_seconds = w as f64;
@@ -786,29 +805,6 @@ fn plugin_display_name(plugin: &str) -> &str {
         "mock" | "test" => "Mock (Simulated Data)",
         _ => plugin,
     }
-}
-
-fn load_settings() -> (AppSettings, bool) {
-    let path = dirs::config_dir()
-        .map(|p| p.join("simtrace").join("settings.toml"))
-        .or_else(|| dirs::home_dir().map(|p| p.join(".simtrace").join("settings.toml")));
-    if let Some(p) = path {
-        if let Ok(s) = AppSettings::load(&p) {
-            return (s, true);
-        }
-    }
-    (AppSettings::default(), false)
-}
-
-fn save_settings(settings: &AppSettings) -> Result<(), anyhow::Error> {
-    let path = dirs::config_dir()
-        .map(|p| p.join("simtrace").join("settings.toml"))
-        .or_else(|| dirs::home_dir().map(|p| p.join(".simtrace").join("settings.toml")))
-        .ok_or_else(|| anyhow::anyhow!("No config dir"))?;
-    if let Some(p) = path.parent() {
-        std::fs::create_dir_all(p)?;
-    }
-    settings.save(&path)
 }
 
 // ── Stadium shape ─────────────────────────────────────────────────────────────

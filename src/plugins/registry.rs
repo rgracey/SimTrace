@@ -1,4 +1,4 @@
-//! Plugin registry for managing available plugins
+//! Plugin registry for managing available game plugins.
 #![allow(dead_code)]
 
 use crate::plugins::GamePlugin;
@@ -87,9 +87,34 @@ mod tests {
 
     #[test]
     fn test_discover_plugins() {
-        let _registry = PluginRegistry::new();
-        // Should have at least ACC on Windows
+        let registry = PluginRegistry::new();
         #[cfg(windows)]
-        assert!(!_registry.available_plugins.is_empty());
+        assert!(!registry.available_plugins().is_empty());
+        #[cfg(not(windows))]
+        let _ = registry; // always available on any platform
+    }
+
+    #[test]
+    fn test_activate_mock_plugin_connects() {
+        let mut registry = PluginRegistry::new();
+        assert!(!registry.is_connected());
+        registry.activate("mock").unwrap();
+        assert!(registry.is_connected());
+    }
+
+    #[test]
+    fn test_activate_unknown_plugin_errors() {
+        let mut registry = PluginRegistry::new();
+        assert!(registry.activate("does_not_exist").is_err());
+    }
+
+    #[test]
+    fn test_activate_replaces_previous_plugin() {
+        let mut registry = PluginRegistry::new();
+        registry.activate("mock").unwrap();
+        assert!(registry.is_connected());
+        // Activating again replaces the existing plugin.
+        registry.activate("mock").unwrap();
+        assert!(registry.is_connected());
     }
 }

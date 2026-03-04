@@ -29,5 +29,3 @@ dirs = "5.0"
 memmap2 = "0.9"
 winapi = { version = "0.3", features = ["winnt", "handleapi", "memoryapi"] }
 
-[dev-dependencies]
-criterion = "0.5"

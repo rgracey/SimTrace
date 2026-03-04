@@ -107,6 +107,7 @@ impl<'a> TraceGraph<'a> {
     }
 
     /// Draw a single-colour trace for any scalar telemetry value.
+    #[allow(clippy::too_many_arguments)]
     fn draw_trace(
         &self,
         painter: &egui::Painter,
@@ -189,7 +190,9 @@ impl<'a> TraceGraph<'a> {
 
     fn draw_legend(&self, painter: &egui::Painter, rect: Rect) {
         let text_color = self.apply_opacity(&self.colors.text);
-        let bg = self.apply_opacity(&self.colors.background).linear_multiply(0.8);
+        let bg = self
+            .apply_opacity(&self.colors.background)
+            .linear_multiply(0.8);
         let legend_rect =
             Rect::from_min_size(rect.min + Vec2::new(10.0, 10.0), Vec2::new(120.0, 90.0));
         painter.rect_filled(legend_rect, 4.0, bg);

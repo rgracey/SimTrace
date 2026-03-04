@@ -45,7 +45,11 @@ impl MockPlugin {
 
         // Clutch: brief pulses during braking, simulating downshifts
         let clutch_pulse = ((self.simulation_time * 2.5).sin() + 1.0) * 0.5;
-        let clutch = if brake > 0.1 { clutch_pulse * 0.85 } else { 0.0 };
+        let clutch = if brake > 0.1 {
+            clutch_pulse * 0.85
+        } else {
+            0.0
+        };
 
         VehicleTelemetry {
             throttle: throttle.clamp(0.0, 1.0),
