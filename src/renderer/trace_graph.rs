@@ -163,6 +163,9 @@ impl<'a> TraceGraph<'a> {
             );
             if Some(point.abs_active) != current_abs {
                 if !current_pts.is_empty() {
+                    // Include the transition point in the outgoing segment so it
+                    // connects seamlessly to the next segment (no gap at ABS transitions).
+                    current_pts.push(pos);
                     segments.push((
                         std::mem::take(&mut current_pts),
                         current_abs.unwrap_or(false),
