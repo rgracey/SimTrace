@@ -49,7 +49,7 @@ fn main() -> eframe::Result<()> {
             backends: eframe::wgpu::Backends::VULKAN,
             ..Default::default()
         });
-        let has_vulkan = vulkan_instance
+        let has_vulkan = !vulkan_instance
             .enumerate_adapters(eframe::wgpu::Backends::VULKAN)
             .is_empty();
 
