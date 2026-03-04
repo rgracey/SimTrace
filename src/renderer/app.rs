@@ -131,6 +131,14 @@ impl eframe::App for SimTraceApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Force dark visuals every frame — prevents the OS light theme from
+        // overriding our settings (observed on Windows 11 with light mode).
+        ctx.set_visuals(egui::Visuals {
+            panel_fill: egui::Color32::TRANSPARENT,
+            window_fill: egui::Color32::TRANSPARENT,
+            ..egui::Visuals::dark()
+        });
+
         // Track window geometry for persistence
         if let Some(inner) = ctx.input(|i| i.viewport().inner_rect) {
             self.settings.overlay.width = inner.width();
@@ -640,7 +648,9 @@ fn draw_config(
     running: &mut bool,
     save_toast: &mut Option<std::time::Instant>,
 ) {
-    // Force readable text on dark panel
+    // Ensure all widgets (sliders, dropdowns, colour pickers) use dark styling
+    // regardless of the OS theme reported by the platform layer.
+    *ui.visuals_mut() = egui::Visuals::dark();
     ui.visuals_mut().override_text_color = Some(egui::Color32::from_gray(210));
 
     // Status dot + label + stop/start + save (right-aligned) — all inline
