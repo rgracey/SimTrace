@@ -12,6 +12,9 @@ const BUFFER_CAPACITY_SECS: u64 = 60;
 const MAX_DISPLAY_WINDOW_SECS: f32 = 30.0;
 /// Polling rate for the background telemetry thread.
 const POLL_RATE_HZ: u64 = 60;
+/// Minimum overlay dimensions — keeps the layout from collapsing.
+const MIN_WIDTH: f32 = 300.0;
+const MIN_HEIGHT: f32 = 130.0;
 
 // ── Background poller ─────────────────────────────────────────────────────────
 
@@ -183,6 +186,10 @@ impl eframe::App for SimTraceApp {
 
         let fps = self.settings.graph.overlay_fps;
         ctx.request_repaint_after(std::time::Duration::from_secs_f64(1.0 / fps as f64));
+        ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(
+            MIN_WIDTH,
+            MIN_HEIGHT,
+        )));
 
         egui::CentralPanel::default()
             .frame(egui::Frame::none())
@@ -453,8 +460,8 @@ impl eframe::App for SimTraceApp {
                             let delta = resp.drag_delta();
                             if let Some(inner) = ctx.input(|i| i.viewport().inner_rect) {
                                 let new_size = egui::vec2(
-                                    (inner.width() + delta.x).max(200.0),
-                                    (inner.height() + delta.y).max(100.0),
+                                    (inner.width() + delta.x).max(MIN_WIDTH),
+                                    (inner.height() + delta.y).max(MIN_HEIGHT),
                                 );
                                 ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(new_size));
                             }
