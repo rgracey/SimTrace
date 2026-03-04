@@ -51,8 +51,7 @@ fn main() -> eframe::Result<()> {
         });
         let has_vulkan = vulkan_instance
             .enumerate_adapters(eframe::wgpu::Backends::VULKAN)
-            .next()
-            .is_some();
+            .is_empty();
 
         if has_vulkan {
             tracing::info!("Vulkan available — using Vulkan backend for window transparency");
