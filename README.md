@@ -14,9 +14,10 @@ A lightweight sim racing telemetry overlay. Displays pedal inputs, steering angl
 
 ## Supported games
 
-| Game                       | Platform |
-| -------------------------- | -------- |
-| Assetto Corsa Competizione | Windows  |
+| Game                       |
+| -------------------------- |
+| Assetto Corsa Competizione |
+| Automobilista 2            |
 
 ## Installation
 

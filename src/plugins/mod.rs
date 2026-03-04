@@ -1,5 +1,6 @@
 //! Game plugin trait and registry
 
+pub mod ams2;
 pub mod assetto_competizione;
 pub mod mock;
 pub mod registry;
