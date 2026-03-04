@@ -58,12 +58,15 @@ impl SteeringWheel {
             Color32::from_rgba_unmultiplied(255, 255, 255, a),
         );
 
-        // Fixed centre blip at 12 o'clock (marks zero/straight-ahead)
-        let top = Pos2::new(center.x, center.y - radius);
-        painter.circle_filled(
-            top,
-            thickness * 0.45,
-            Color32::from_rgba_unmultiplied(130, 130, 130, a),
+        // Fixed centre tick at 12 o'clock (marks zero/straight-ahead) —
+        // a thin vertical line spanning the ring stroke width.
+        let half = thickness * 0.5;
+        painter.line_segment(
+            [
+                Pos2::new(center.x, center.y - radius - half),
+                Pos2::new(center.x, center.y - radius + half),
+            ],
+            Stroke::new(2.0, Color32::from_rgba_unmultiplied(242, 85, 85, a)),
         );
 
         // If > one full rotation, show the angle in the centre so the driver knows where they are
