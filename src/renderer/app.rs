@@ -42,6 +42,7 @@ pub struct SimTraceApp {
     current_steering: f32,
     running: bool,
     config_open: bool,
+    minimized: bool,
     /// 0.0 = fully hidden, 1.0 = fully visible
     bar_alpha: f32,
     /// Tracks which plugin is currently active so we can detect dropdown changes
@@ -69,6 +70,7 @@ impl SimTraceApp {
             current_steering: 0.0,
             running: true,
             config_open: false,
+            minimized: false,
             bar_alpha: 1.0,
             active_plugin,
             save_toast: None,
@@ -139,10 +141,12 @@ impl eframe::App for SimTraceApp {
             ..egui::Visuals::dark()
         });
 
-        // Track window geometry for persistence
+        // Track window geometry for persistence (skip height when minimized)
         if let Some(inner) = ctx.input(|i| i.viewport().inner_rect) {
             self.settings.overlay.width = inner.width();
+            if !self.minimized {
             self.settings.overlay.height = inner.height();
+            }
         }
         if let Some(outer) = ctx.input(|i| i.viewport().outer_rect) {
             self.settings.overlay.position_x = outer.min.x;
@@ -193,7 +197,7 @@ impl eframe::App for SimTraceApp {
                         .map(|p| screen.contains(p))
                         .unwrap_or(false)
                 });
-                let target = if hovered || self.config_open {
+                let target = if self.minimized || hovered || self.config_open {
                     1.0_f32
                 } else {
                     0.0_f32
@@ -288,9 +292,53 @@ impl eframe::App for SimTraceApp {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
 
-                // Gear button — left of close button
-                let gear_rect = egui::Rect::from_center_size(
+                // Minimize button — between close and gear
+                let minimize_rect = egui::Rect::from_center_size(
                     egui::pos2(bar_rect.max.x - 40.0, bar_rect.center().y),
+                    egui::vec2(22.0, 22.0),
+                );
+                let minimize_resp = ui.allocate_rect(minimize_rect, egui::Sense::click());
+                if self.minimized || minimize_resp.hovered() {
+                    ui.painter().rect_filled(
+                        minimize_rect,
+                        4.0,
+                        egui::Color32::from_rgba_unmultiplied(60, 60, 60, ba),
+                    );
+                }
+                // Painted chevron: ˄ when minimized (expand), ˅ when visible (collapse)
+                {
+                    let cx = minimize_rect.center().x;
+                    let cy = minimize_rect.center().y;
+                    let w = 5.0_f32;
+                    let h = 3.5_f32;
+                    let stroke = egui::Stroke::new(1.5, with_alpha(LABEL_MID, ba));
+                    if self.minimized {
+                        ui.painter().line_segment([egui::pos2(cx - w, cy + h * 0.5), egui::pos2(cx, cy - h * 0.5)], stroke);
+                        ui.painter().line_segment([egui::pos2(cx, cy - h * 0.5), egui::pos2(cx + w, cy + h * 0.5)], stroke);
+                    } else {
+                        ui.painter().line_segment([egui::pos2(cx - w, cy - h * 0.5), egui::pos2(cx, cy + h * 0.5)], stroke);
+                        ui.painter().line_segment([egui::pos2(cx, cy + h * 0.5), egui::pos2(cx + w, cy - h * 0.5)], stroke);
+                    }
+                }
+                if minimize_resp.clicked() {
+                    self.minimized = !self.minimized;
+                    if self.minimized {
+                        self.config_open = false;
+                        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+                            self.settings.overlay.width,
+                            bar_h + 4.0,
+                        )));
+                    } else {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+                            self.settings.overlay.width,
+                            self.settings.overlay.height,
+                        )));
+                    }
+                }
+
+                // Gear button — left of minimize button
+                let gear_rect = egui::Rect::from_center_size(
+                    egui::pos2(bar_rect.max.x - 66.0, bar_rect.center().y),
                     egui::vec2(22.0, 22.0),
                 );
                 let gear_resp = ui.allocate_rect(gear_rect, egui::Sense::click());
@@ -319,6 +367,7 @@ impl eframe::App for SimTraceApp {
                     self.config_open = !self.config_open;
                 }
 
+                if !self.minimized {
                 // ── Content card — stadium shape (rounded right cap) ─────────
                 let content_rect = egui::Rect::from_min_max(
                     egui::pos2(screen.min.x + pad, screen.min.y + bar_h),
@@ -332,6 +381,9 @@ impl eframe::App for SimTraceApp {
                     egui::Stroke::new(1.0, with_alpha(BORDER, a)),
                 ));
 
+                // Guard against the transition frame where the window hasn't
+                // resized yet (content_rect would have near-zero height).
+                if content_rect.height() > 10.0 {
                 if self.running {
                     let mut content_ui = ui.new_child(
                         egui::UiBuilder::new()
@@ -356,6 +408,7 @@ impl eframe::App for SimTraceApp {
                         with_alpha(egui::Color32::from_gray(55), a),
                     );
                 }
+                } // end content_rect.height() > 10.0
 
                 // ── Resize handle — bottom-right corner of the rectangle ──────
                 {
@@ -388,6 +441,7 @@ impl eframe::App for SimTraceApp {
                         );
                     }
                 }
+                } // end !self.minimized
 
                 // ── Config panel ─────────────────────────────────────────────
                 if self.config_open {
