@@ -145,7 +145,7 @@ impl eframe::App for SimTraceApp {
         if let Some(inner) = ctx.input(|i| i.viewport().inner_rect) {
             self.settings.overlay.width = inner.width();
             if !self.minimized {
-            self.settings.overlay.height = inner.height();
+                self.settings.overlay.height = inner.height();
             }
         }
         if let Some(outer) = ctx.input(|i| i.viewport().outer_rect) {
@@ -466,6 +466,7 @@ impl eframe::App for SimTraceApp {
                             &mut self.settings,
                             &mut self.running,
                             &mut self.save_toast,
+                            buffer.as_ref(),
                         );
                     });
                     if self.running && self.poller.is_none() {
@@ -701,18 +702,25 @@ fn draw_config(
     settings: &mut AppSettings,
     running: &mut bool,
     save_toast: &mut Option<std::time::Instant>,
+    buffer: Option<&Arc<crate::core::TelemetryBuffer>>,
 ) {
     // Ensure all widgets (sliders, dropdowns, colour pickers) use dark styling
     // regardless of the OS theme reported by the platform layer.
     *ui.visuals_mut() = egui::Visuals::dark();
     ui.visuals_mut().override_text_color = Some(egui::Color32::from_gray(210));
 
+    let is_live = buffer
+        .and_then(|b| b.latest())
+        .is_some_and(|p| p.captured_at.elapsed().as_secs_f32() <= 2.0);
+
     // Status dot + label + stop/start + save (right-aligned) — all inline
     ui.horizontal(|ui| {
-        let (dot_color, status_text) = if *running {
+        let (dot_color, status_text): (egui::Color32, &str) = if !*running {
+            (egui::Color32::from_gray(60), "STOPPED")
+        } else if is_live {
             (egui::Color32::from_rgb(60, 200, 80), "LIVE")
         } else {
-            (egui::Color32::from_gray(60), "STOPPED")
+            (egui::Color32::from_rgb(220, 140, 40), "CONNECTING")
         };
         let (dot_rect, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
         ui.painter()
