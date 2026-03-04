@@ -32,6 +32,18 @@ pub struct GraphSettings {
     /// Display speed in mph instead of kph.
     #[serde(default)]
     pub speed_mph: bool,
+    #[serde(default = "default_true")]
+    pub show_throttle: bool,
+    #[serde(default = "default_true")]
+    pub show_brake: bool,
+    #[serde(default = "default_true")]
+    pub show_abs: bool,
+    #[serde(default = "default_true")]
+    pub show_clutch: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_overlay_fps() -> u32 {
@@ -80,6 +92,10 @@ impl Default for AppSettings {
                 line_width: 2.0,
                 overlay_fps: 60,
                 speed_mph: false,
+                show_throttle: true,
+                show_brake: true,
+                show_abs: true,
+                show_clutch: true,
             },
             colors: ColorScheme {
                 throttle: "#00FF00".to_string(),

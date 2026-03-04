@@ -483,7 +483,7 @@ fn draw_telemetry(
         );
         let p = ui.painter();
 
-        let brake_color = if abs_on {
+        let brake_color = if abs_on && settings.graph.show_abs {
             AppSettings::parse_color(&settings.colors.abs_active)
         } else {
             AppSettings::parse_color(&settings.colors.brake)
@@ -745,6 +745,7 @@ fn draw_config(
     ui.add_space(4.0);
     slider_row(ui, "Opacity", &mut settings.overlay.opacity, 0.1..=1.0, "");
     slider_row_int(ui, "FPS", &mut settings.graph.overlay_fps, 10..=120, " fps");
+    slider_row(ui, "Trace width", &mut settings.graph.line_width, 0.5..=5.0, " px");
     ui.horizontal(|ui| {
         ui.label(
             egui::RichText::new("Time window")
@@ -766,12 +767,14 @@ fn draw_config(
         });
     });
 
-    // ── Colours ──────────────────────────────────────────────────────────────
-    section_header(ui, "COLOURS");
-    color_row(ui, "Throttle", &mut settings.colors.throttle);
-    color_row(ui, "Brake", &mut settings.colors.brake);
-    color_row(ui, "ABS", &mut settings.colors.abs_active);
-    color_row(ui, "Clutch", &mut settings.colors.clutch);
+    // ── Traces ───────────────────────────────────────────────────────────────
+    section_header(ui, "TRACES");
+    trace_section(ui, "THROTTLE", &mut settings.graph.show_throttle, &mut settings.colors.throttle);
+    trace_section(ui, "BRAKE", &mut settings.graph.show_brake, &mut settings.colors.brake);
+    ui.indent("abs_indent", |ui| {
+        trace_section(ui, "ABS", &mut settings.graph.show_abs, &mut settings.colors.abs_active);
+    });
+    trace_section(ui, "CLUTCH", &mut settings.graph.show_clutch, &mut settings.colors.clutch);
 
     // ── Logs ─────────────────────────────────────────────────────────────────
     section_header(ui, "LOGS");
@@ -853,13 +856,35 @@ fn styled_button(label: &str) -> egui::Button<'static> {
         .fill(egui::Color32::from_rgb(38, 38, 38))
 }
 
-fn color_row(ui: &mut egui::Ui, label: &str, hex: &mut String) {
+
+/// Sub-section with a small header, enabled checkbox, and colour swatch.
+fn trace_section(ui: &mut egui::Ui, label: &str, enabled: &mut bool, hex: &mut String) {
+    ui.add_space(4.0);
     ui.horizontal(|ui| {
-        let mut color = AppSettings::parse_color(hex);
-        if color_edit_button_srgba(ui, &mut color, Alpha::Opaque).changed() {
-            *hex = format!("#{:02X}{:02X}{:02X}", color.r(), color.g(), color.b());
+        let label_color = if *enabled { LABEL_MID } else { LABEL_DIM };
+        ui.label(egui::RichText::new(label).size(9.0).monospace().color(label_color));
+        let y = ui.next_widget_position().y + 5.0;
+        let x0 = ui.next_widget_position().x + 4.0;
+        let x1 = ui.max_rect().max.x;
+        if x1 > x0 {
+            ui.painter().line_segment(
+                [egui::pos2(x0, y), egui::pos2(x1, y)],
+                egui::Stroke::new(0.5, BORDER),
+            );
         }
-        ui.label(egui::RichText::new(label).size(11.0).color(LABEL_MID));
+    });
+    ui.add_space(2.0);
+    ui.horizontal(|ui| {
+        ui.checkbox(
+            enabled,
+            egui::RichText::new("Enabled").size(11.0).color(LABEL_MID),
+        );
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let mut color = AppSettings::parse_color(hex);
+            if color_edit_button_srgba(ui, &mut color, Alpha::Opaque).changed() {
+                *hex = format!("#{:02X}{:02X}{:02X}", color.r(), color.g(), color.b());
+            }
+        });
     });
 }
 

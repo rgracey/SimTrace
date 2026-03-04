@@ -60,25 +60,31 @@ impl<'a> TraceGraph<'a> {
 
             if !points.is_empty() {
                 // Draw order: clutch → throttle → brake/ABS (top, always visible)
-                self.draw_trace(
-                    &painter,
-                    rect,
-                    &points,
-                    now,
-                    window_dur,
-                    |p| p.telemetry.clutch,
-                    &self.colors.clutch,
-                );
-                self.draw_trace(
-                    &painter,
-                    rect,
-                    &points,
-                    now,
-                    window_dur,
-                    |p| p.telemetry.throttle,
-                    &self.colors.throttle,
-                );
-                self.draw_brake_trace(&painter, rect, &points, now, window_dur);
+                if self.settings.show_clutch {
+                    self.draw_trace(
+                        &painter,
+                        rect,
+                        &points,
+                        now,
+                        window_dur,
+                        |p| p.telemetry.clutch,
+                        &self.colors.clutch,
+                    );
+                }
+                if self.settings.show_throttle {
+                    self.draw_trace(
+                        &painter,
+                        rect,
+                        &points,
+                        now,
+                        window_dur,
+                        |p| p.telemetry.throttle,
+                        &self.colors.throttle,
+                    );
+                }
+                if self.settings.show_brake {
+                    self.draw_brake_trace(&painter, rect, &points, now, window_dur);
+                }
             }
         }
 
@@ -176,7 +182,7 @@ impl<'a> TraceGraph<'a> {
             if seg_pts.len() < 2 {
                 continue;
             }
-            let color_hex = if abs_active {
+            let color_hex = if abs_active && self.settings.show_abs {
                 &self.colors.abs_active
             } else {
                 &self.colors.brake
