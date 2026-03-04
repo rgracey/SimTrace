@@ -59,7 +59,7 @@ impl<'a> TraceGraph<'a> {
                 .collect();
 
             if !points.is_empty() {
-                // Draw order: clutch (bottom) → brake → throttle (top)
+                // Draw order: clutch → throttle → brake/ABS (top, always visible)
                 self.draw_trace(
                     &painter,
                     rect,
@@ -69,7 +69,6 @@ impl<'a> TraceGraph<'a> {
                     |p| p.telemetry.clutch,
                     &self.colors.clutch,
                 );
-                self.draw_brake_trace(&painter, rect, &points, now, window_dur);
                 self.draw_trace(
                     &painter,
                     rect,
@@ -79,6 +78,7 @@ impl<'a> TraceGraph<'a> {
                     |p| p.telemetry.throttle,
                     &self.colors.throttle,
                 );
+                self.draw_brake_trace(&painter, rect, &points, now, window_dur);
             }
         }
 
