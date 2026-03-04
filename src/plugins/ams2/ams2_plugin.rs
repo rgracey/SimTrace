@@ -6,9 +6,9 @@ use crate::core::TelemetryData;
 use crate::plugins::{GameConfig, GamePlugin};
 
 #[cfg(windows)]
-use crate::core::VehicleTelemetry;
-#[cfg(windows)]
 use super::shared_memory::Ams2SharedMemory;
+#[cfg(windows)]
+use crate::core::VehicleTelemetry;
 #[cfg(windows)]
 use tracing::{info, warn};
 

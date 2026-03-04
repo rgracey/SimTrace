@@ -55,7 +55,11 @@ impl PluginRegistry {
             );
         }
 
-        info!("Plugin '{}' selected (connected: {})", plugin.name(), plugin.is_connected());
+        info!(
+            "Plugin '{}' selected (connected: {})",
+            plugin.name(),
+            plugin.is_connected()
+        );
         self.active_plugin = Some(plugin);
         Ok(())
     }

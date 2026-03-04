@@ -77,7 +77,9 @@ fn main() -> eframe::Result<()> {
 
 /// Initialise tracing: file sink always, stderr sink on non-Windows.
 /// Returns the worker guard that must be kept alive for the duration of the process.
-fn init_logging(log_dir: Option<&std::path::Path>) -> Option<tracing_appender::non_blocking::WorkerGuard> {
+fn init_logging(
+    log_dir: Option<&std::path::Path>,
+) -> Option<tracing_appender::non_blocking::WorkerGuard> {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "simtrace=info".into());
 

@@ -88,8 +88,7 @@ impl SimTraceApp {
 
         let (cmd_tx, cmd_rx) = std::sync::mpsc::channel::<PollerCmd>();
         let plugin_name = self.settings.collector.plugin.clone();
-        let poll_interval =
-            std::time::Duration::from_micros(1_000_000 / POLL_RATE_HZ);
+        let poll_interval = std::time::Duration::from_micros(1_000_000 / POLL_RATE_HZ);
 
         let thread = std::thread::spawn(move || {
             let _ = collector.activate_plugin(&plugin_name);
@@ -317,11 +316,35 @@ impl eframe::App for SimTraceApp {
                     let h = 3.5_f32;
                     let stroke = egui::Stroke::new(1.5, with_alpha(LABEL_MID, ba));
                     if self.minimized {
-                        ui.painter().line_segment([egui::pos2(cx - w, cy + h * 0.5), egui::pos2(cx, cy - h * 0.5)], stroke);
-                        ui.painter().line_segment([egui::pos2(cx, cy - h * 0.5), egui::pos2(cx + w, cy + h * 0.5)], stroke);
+                        ui.painter().line_segment(
+                            [
+                                egui::pos2(cx - w, cy + h * 0.5),
+                                egui::pos2(cx, cy - h * 0.5),
+                            ],
+                            stroke,
+                        );
+                        ui.painter().line_segment(
+                            [
+                                egui::pos2(cx, cy - h * 0.5),
+                                egui::pos2(cx + w, cy + h * 0.5),
+                            ],
+                            stroke,
+                        );
                     } else {
-                        ui.painter().line_segment([egui::pos2(cx - w, cy - h * 0.5), egui::pos2(cx, cy + h * 0.5)], stroke);
-                        ui.painter().line_segment([egui::pos2(cx, cy + h * 0.5), egui::pos2(cx + w, cy - h * 0.5)], stroke);
+                        ui.painter().line_segment(
+                            [
+                                egui::pos2(cx - w, cy - h * 0.5),
+                                egui::pos2(cx, cy + h * 0.5),
+                            ],
+                            stroke,
+                        );
+                        ui.painter().line_segment(
+                            [
+                                egui::pos2(cx, cy + h * 0.5),
+                                egui::pos2(cx + w, cy - h * 0.5),
+                            ],
+                            stroke,
+                        );
                     }
                 }
                 if minimize_resp.clicked() {
@@ -372,80 +395,80 @@ impl eframe::App for SimTraceApp {
                 }
 
                 if !self.minimized {
-                // ── Content card — stadium shape (rounded right cap) ─────────
-                let content_rect = egui::Rect::from_min_max(
-                    egui::pos2(screen.min.x + pad, screen.min.y + bar_h),
-                    egui::pos2(screen.max.x - pad, screen.max.y - pad),
-                );
-                // Cap radius: half the card height → perfect semicircle on the right
-                let cap_r = content_rect.height() / 2.0;
-                ui.painter().add(egui::Shape::convex_polygon(
-                    stadium_path(content_rect, 5.0, cap_r),
-                    with_alpha(CARD_BG, a),
-                    egui::Stroke::new(1.0, with_alpha(BORDER, a)),
-                ));
+                    // ── Content card — stadium shape (rounded right cap) ─────────
+                    let content_rect = egui::Rect::from_min_max(
+                        egui::pos2(screen.min.x + pad, screen.min.y + bar_h),
+                        egui::pos2(screen.max.x - pad, screen.max.y - pad),
+                    );
+                    // Cap radius: half the card height → perfect semicircle on the right
+                    let cap_r = content_rect.height() / 2.0;
+                    ui.painter().add(egui::Shape::convex_polygon(
+                        stadium_path(content_rect, 5.0, cap_r),
+                        with_alpha(CARD_BG, a),
+                        egui::Stroke::new(1.0, with_alpha(BORDER, a)),
+                    ));
 
-                // Guard against the transition frame where the window hasn't
-                // resized yet (content_rect would have near-zero height).
-                if content_rect.height() > 10.0 {
-                if self.running {
-                    let mut content_ui = ui.new_child(
-                        egui::UiBuilder::new()
-                            .max_rect(content_rect.shrink(2.0))
-                            .layout(egui::Layout::top_down(egui::Align::LEFT)),
-                    );
-                    draw_telemetry(
-                        &mut content_ui,
-                        &mut self.settings,
-                        &self.parsed_colors,
-                        buffer.as_ref(),
-                        self.current_steering,
-                        a,
-                        cap_r,
-                    );
-                } else {
-                    let font_size = (content_rect.height() * 0.28).clamp(14.0, 42.0);
-                    ui.painter().text(
-                        content_rect.center(),
-                        egui::Align2::CENTER_CENTER,
-                        "STOPPED",
-                        egui::FontId::monospace(font_size),
-                        with_alpha(egui::Color32::from_gray(55), a),
-                    );
-                }
-                } // end content_rect.height() > 10.0
-
-                // ── Resize handle — bottom-right corner of the rectangle ──────
-                {
-                    // Right edge of the circle = content_rect.max.x, bottom = content_rect.max.y
-                    let hx = content_rect.max.x;
-                    let hy = content_rect.max.y;
-                    let grip = 20.0_f32;
-                    let hr = egui::Rect::from_min_max(
-                        egui::pos2(hx - grip, hy - grip),
-                        egui::pos2(hx, hy),
-                    );
-                    let resp = ui.allocate_rect(hr, egui::Sense::drag());
-                    if resp.dragged() {
-                        let delta = resp.drag_delta();
-                        if let Some(inner) = ctx.input(|i| i.viewport().inner_rect) {
-                            let new_size = egui::vec2(
-                                (inner.width() + delta.x).max(200.0),
-                                (inner.height() + delta.y).max(100.0),
+                    // Guard against the transition frame where the window hasn't
+                    // resized yet (content_rect would have near-zero height).
+                    if content_rect.height() > 10.0 {
+                        if self.running {
+                            let mut content_ui = ui.new_child(
+                                egui::UiBuilder::new()
+                                    .max_rect(content_rect.shrink(2.0))
+                                    .layout(egui::Layout::top_down(egui::Align::LEFT)),
                             );
-                            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(new_size));
+                            draw_telemetry(
+                                &mut content_ui,
+                                &mut self.settings,
+                                &self.parsed_colors,
+                                buffer.as_ref(),
+                                self.current_steering,
+                                a,
+                                cap_r,
+                            );
+                        } else {
+                            let font_size = (content_rect.height() * 0.28).clamp(14.0, 42.0);
+                            ui.painter().text(
+                                content_rect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                "STOPPED",
+                                egui::FontId::monospace(font_size),
+                                with_alpha(egui::Color32::from_gray(55), a),
+                            );
+                        }
+                    } // end content_rect.height() > 10.0
+
+                    // ── Resize handle — bottom-right corner of the rectangle ──────
+                    {
+                        // Right edge of the circle = content_rect.max.x, bottom = content_rect.max.y
+                        let hx = content_rect.max.x;
+                        let hy = content_rect.max.y;
+                        let grip = 20.0_f32;
+                        let hr = egui::Rect::from_min_max(
+                            egui::pos2(hx - grip, hy - grip),
+                            egui::pos2(hx, hy),
+                        );
+                        let resp = ui.allocate_rect(hr, egui::Sense::drag());
+                        if resp.dragged() {
+                            let delta = resp.drag_delta();
+                            if let Some(inner) = ctx.input(|i| i.viewport().inner_rect) {
+                                let new_size = egui::vec2(
+                                    (inner.width() + delta.x).max(200.0),
+                                    (inner.height() + delta.y).max(100.0),
+                                );
+                                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(new_size));
+                            }
+                        }
+                        // Diagonal grip lines in the corner
+                        let p = ui.painter();
+                        for i in 1..=3i32 {
+                            let o = i as f32 * 5.0;
+                            p.line_segment(
+                                [egui::pos2(hx - o, hy), egui::pos2(hx, hy - o)],
+                                egui::Stroke::new(1.5, with_alpha(LABEL_DIM, ba)),
+                            );
                         }
                     }
-                    // Diagonal grip lines in the corner
-                    let p = ui.painter();
-                    for i in 1..=3i32 {
-                        let o = i as f32 * 5.0;
-                        p.line_segment(
-                            [egui::pos2(hx - o, hy), egui::pos2(hx, hy - o)],
-                            egui::Stroke::new(1.5, with_alpha(LABEL_DIM, ba)),
-                        );
-                    }
-                }
                 } // end !self.minimized
 
                 // ── Config panel ─────────────────────────────────────────────
@@ -528,13 +551,8 @@ fn draw_telemetry(
     ui.spacing_mut().item_spacing.x = 0.0;
     ui.horizontal(|ui| {
         // ── Trace graph ──────────────────────────────────────────────────────
-        crate::renderer::TraceGraph::new(
-            buffer.map(|v| &**v),
-            &settings.graph,
-            colors,
-            opacity,
-        )
-        .show(ui, egui::vec2(graph_w, graph_h));
+        crate::renderer::TraceGraph::new(buffer.map(|v| &**v), &settings.graph, colors, opacity)
+            .show(ui, egui::vec2(graph_w, graph_h));
 
         // Gap between graph and bars
         ui.allocate_exact_size(egui::vec2(gap, available.height()), egui::Sense::hover());
@@ -809,7 +827,13 @@ fn draw_config(
     ui.add_space(4.0);
     slider_row(ui, "Opacity", &mut settings.overlay.opacity, 0.1..=1.0, "");
     slider_row_int(ui, "FPS", &mut settings.graph.overlay_fps, 10..=120, " fps");
-    slider_row(ui, "Trace width", &mut settings.graph.line_width, 0.5..=5.0, " px");
+    slider_row(
+        ui,
+        "Trace width",
+        &mut settings.graph.line_width,
+        0.5..=5.0,
+        " px",
+    );
     ui.horizontal(|ui| {
         ui.label(
             egui::RichText::new("Time window")
@@ -833,12 +857,32 @@ fn draw_config(
 
     // ── Traces ───────────────────────────────────────────────────────────────
     section_header(ui, "TRACES");
-    trace_section(ui, "THROTTLE", &mut settings.graph.show_throttle, &mut settings.colors.throttle);
-    trace_section(ui, "BRAKE", &mut settings.graph.show_brake, &mut settings.colors.brake);
+    trace_section(
+        ui,
+        "THROTTLE",
+        &mut settings.graph.show_throttle,
+        &mut settings.colors.throttle,
+    );
+    trace_section(
+        ui,
+        "BRAKE",
+        &mut settings.graph.show_brake,
+        &mut settings.colors.brake,
+    );
     ui.indent("abs_indent", |ui| {
-        trace_section(ui, "ABS", &mut settings.graph.show_abs, &mut settings.colors.abs_active);
+        trace_section(
+            ui,
+            "ABS",
+            &mut settings.graph.show_abs,
+            &mut settings.colors.abs_active,
+        );
     });
-    trace_section(ui, "CLUTCH", &mut settings.graph.show_clutch, &mut settings.colors.clutch);
+    trace_section(
+        ui,
+        "CLUTCH",
+        &mut settings.graph.show_clutch,
+        &mut settings.colors.clutch,
+    );
 
     // ── Logs ─────────────────────────────────────────────────────────────────
     section_header(ui, "LOGS");
@@ -920,13 +964,17 @@ fn styled_button(label: &str) -> egui::Button<'static> {
         .fill(egui::Color32::from_rgb(38, 38, 38))
 }
 
-
 /// Sub-section with a small header, enabled checkbox, and colour swatch.
 fn trace_section(ui: &mut egui::Ui, label: &str, enabled: &mut bool, hex: &mut String) {
     ui.add_space(4.0);
     ui.horizontal(|ui| {
         let label_color = if *enabled { LABEL_MID } else { LABEL_DIM };
-        ui.label(egui::RichText::new(label).size(9.0).monospace().color(label_color));
+        ui.label(
+            egui::RichText::new(label)
+                .size(9.0)
+                .monospace()
+                .color(label_color),
+        );
         let y = ui.next_widget_position().y + 5.0;
         let x0 = ui.next_widget_position().x + 4.0;
         let x1 = ui.max_rect().max.x;

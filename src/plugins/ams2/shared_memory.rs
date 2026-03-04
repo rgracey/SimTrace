@@ -30,9 +30,7 @@ impl Ams2SharedMemory {
             let wide = to_wide(Self::MAPPING_NAME);
             let h = OpenFileMappingW(FILE_MAP_READ, 0, wide.as_ptr());
             if h.is_null() {
-                return Err(anyhow!(
-                    "AMS2 shared memory not found — is AMS2 running?"
-                ));
+                return Err(anyhow!("AMS2 shared memory not found — is AMS2 running?"));
             }
             let ptr = MapViewOfFile(h, FILE_MAP_READ, 0, 0, 0) as *const u8;
             if ptr.is_null() {
