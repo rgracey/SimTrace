@@ -2,7 +2,9 @@
 
 A lightweight sim racing telemetry overlay. Displays pedal inputs, steering angle, gear, and speed in real time as a transparent overlay on top of your game.
 
-![SimTrace UI demo](docs/images/SimTrace.png)
+## Demo
+
+![SimTrace Demo](docs/media/SimTrace.gif)
 
 ## Features
 
@@ -14,10 +16,10 @@ A lightweight sim racing telemetry overlay. Displays pedal inputs, steering angl
 
 ## Supported games
 
-| Game                       |
-| -------------------------- |
-| Assetto Corsa Competizione |
-| Automobilista 2            |
+| Game                          |
+| ----------------------------- |
+| Assetto Corsa Competizione    |
+| Automobilista 2 (in progress) |
 
 ## Installation
 
