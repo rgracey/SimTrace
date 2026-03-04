@@ -1,15 +1,29 @@
 //! Main application
 
 use crate::config::AppSettings;
-use crate::core::DataCollector;
+use crate::core::{DataCollector, TelemetryBuffer};
 use eframe::egui;
 use egui::color_picker::{color_edit_button_srgba, Alpha};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 // The buffer is kept larger than the maximum display window so the slider can
 // show the full range without data disappearing at the top.
 const BUFFER_CAPACITY_SECS: u64 = 60;
 const MAX_DISPLAY_WINDOW_SECS: f32 = 30.0;
+/// Polling rate for the background telemetry thread.
+const POLL_RATE_HZ: u64 = 60;
+
+// ── Background poller ─────────────────────────────────────────────────────────
+
+enum PollerCmd {
+    ActivatePlugin(String),
+}
+
+/// Owns the background polling thread. Dropping this stops the thread.
+struct PollerHandle {
+    cmd_tx: std::sync::mpsc::Sender<PollerCmd>,
+    _thread: std::thread::JoinHandle<()>,
+}
 
 // ── Palette ──────────────────────────────────────────────────────────────────
 const BAR_BG: egui::Color32 = egui::Color32::from_rgb(13, 13, 13);
@@ -21,7 +35,10 @@ const ACCENT_RED: egui::Color32 = egui::Color32::from_rgb(220, 45, 45);
 
 pub struct SimTraceApp {
     settings: AppSettings,
-    collector: Option<Arc<Mutex<DataCollector>>>,
+    /// Shared buffer written by the background poller, read by the UI.
+    buffer: Arc<TelemetryBuffer>,
+    /// Background polling thread; `None` when stopped.
+    poller: Option<PollerHandle>,
     current_steering: f32,
     running: bool,
     config_open: bool,
@@ -45,7 +62,10 @@ impl SimTraceApp {
         let active_plugin = settings.collector.plugin.clone();
         Self {
             settings,
-            collector: None,
+            buffer: Arc::new(TelemetryBuffer::new(std::time::Duration::from_secs(
+                BUFFER_CAPACITY_SECS,
+            ))),
+            poller: None,
             current_steering: 0.0,
             running: true,
             config_open: false,
@@ -56,23 +76,46 @@ impl SimTraceApp {
     }
 
     fn start(&mut self) {
-        if self.collector.is_none() {
-            self.collector = Some(Arc::new(Mutex::new(DataCollector::new(
-                BUFFER_CAPACITY_SECS,
-            ))));
-        }
-        self.activate_plugin();
+        let mut collector = DataCollector::new(BUFFER_CAPACITY_SECS);
+        // Share the collector's buffer with the UI before moving the collector.
+        self.buffer = collector.buffer();
+
+        let (cmd_tx, cmd_rx) = std::sync::mpsc::channel::<PollerCmd>();
+        let plugin_name = self.settings.collector.plugin.clone();
+        let poll_interval =
+            std::time::Duration::from_micros(1_000_000 / POLL_RATE_HZ);
+
+        let thread = std::thread::spawn(move || {
+            let _ = collector.activate_plugin(&plugin_name);
+            loop {
+                collector.poll();
+                loop {
+                    match cmd_rx.try_recv() {
+                        Ok(PollerCmd::ActivatePlugin(name)) => {
+                            collector.buffer().clear();
+                            let _ = collector.activate_plugin(&name);
+                        }
+                        Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                        Err(std::sync::mpsc::TryRecvError::Disconnected) => return,
+                    }
+                }
+                std::thread::sleep(poll_interval);
+            }
+        });
+
+        self.poller = Some(PollerHandle {
+            cmd_tx,
+            _thread: thread,
+        });
         self.running = true;
     }
 
     fn activate_plugin(&mut self) {
         let plugin = self.settings.collector.plugin.clone();
-        if let Some(c) = &self.collector {
-            if let Ok(mut c) = c.lock() {
-                c.buffer().clear();
-                let _ = c.activate_plugin(&plugin);
-            }
+        if let Some(h) = &self.poller {
+            let _ = h.cmd_tx.send(PollerCmd::ActivatePlugin(plugin.clone()));
         }
+        self.buffer.clear();
         self.current_steering = 0.0;
         self.active_plugin = plugin;
     }
@@ -97,28 +140,31 @@ impl eframe::App for SimTraceApp {
             self.settings.overlay.position_x = outer.min.x;
             self.settings.overlay.position_y = outer.min.y;
         }
-        // ── Poll telemetry ───────────────────────────────────────────────────
-        let buffer = if self.running {
-            if let Some(collector) = self.collector.clone() {
-                if let Ok(mut c) = collector.lock() {
-                    c.poll();
-                    if let Some(pt) = c.buffer().latest() {
-                        self.current_steering = pt.telemetry.steering_angle;
-                    }
-                }
+        // ── Poller lifecycle ─────────────────────────────────────────────────
+        if !self.running && self.poller.is_some() {
+            self.poller = None; // drop sender → background thread exits
+            self.buffer.clear();
+            self.current_steering = 0.0;
+        }
+        if self.running && self.poller.is_none() {
+            self.start();
+        }
+        if self.settings.collector.plugin != self.active_plugin {
+            self.activate_plugin();
+        }
+
+        // ── Read latest telemetry ────────────────────────────────────────────
+        if self.running {
+            if let Some(pt) = self.buffer.latest() {
+                self.current_steering = pt.telemetry.steering_angle;
             }
-            self.collector
-                .as_ref()
-                .and_then(|c| c.lock().ok().map(|c| c.buffer()))
+        }
+        // Clone the Arc so the closure below can take &mut self freely.
+        let buffer = if self.running {
+            Some(self.buffer.clone())
         } else {
             None
         };
-
-        if self.running && self.collector.is_none() {
-            self.start();
-        } else if self.settings.collector.plugin != self.active_plugin {
-            self.activate_plugin();
-        }
 
         let fps = self.settings.graph.overlay_fps;
         ctx.request_repaint_after(std::time::Duration::from_secs_f64(1.0 / fps as f64));
@@ -360,7 +406,7 @@ impl eframe::App for SimTraceApp {
                             &mut self.save_toast,
                         );
                     });
-                    if self.running && self.collector.is_none() {
+                    if self.running && self.poller.is_none() {
                         self.start();
                     }
                 }
