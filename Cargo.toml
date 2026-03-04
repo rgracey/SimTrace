@@ -7,8 +7,8 @@ authors = ["SimTrace Contributors"]
 
 [dependencies]
 # GUI
-eframe = { version = "0.29", features = ["wgpu"] }
-egui = "0.29"
+eframe = { version = "0.33.3", features = ["wgpu"] }
+egui = "0.33.3"
 
 # Configuration
 toml = "0.8"

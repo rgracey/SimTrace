@@ -33,14 +33,7 @@ impl<'a> TraceGraph<'a> {
     }
 
     pub fn show(&self, ui: &mut Ui, size: Vec2) -> Response {
-        let (rect, response) = ui.allocate_exact_size(
-            size,
-            egui::Sense {
-                click: false,
-                drag: false,
-                focusable: false,
-            },
-        );
+        let (rect, response) = ui.allocate_exact_size(size, egui::Sense::empty());
         let painter = ui.painter().with_clip_rect(rect);
 
         painter.rect_filled(rect, 0.0, self.apply_opacity(self.colors.background));

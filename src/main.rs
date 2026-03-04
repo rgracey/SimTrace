@@ -37,15 +37,14 @@ fn main() -> eframe::Result<()> {
         ..Default::default()
     };
 
-    // On Windows, the default wgpu backend (DX12) reports only `Opaque` alpha mode,
-    // so transparent window pixels render as black. Vulkan supports
+    // On Windows, the default wgpu backend (DX12) reports only `Opaque` composite
+    // alpha, so transparent pixels render black. Vulkan exposes
     // `VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR`, which lets DWM composite the
-    // window correctly. We probe for Vulkan at startup and fall back to the default
-    // (DX12) only if no Vulkan adapter is found — the app still runs without
-    // transparency in that case.
+    // window correctly. Probe for a Vulkan adapter at startup; fall back to DX12
+    // (no transparency) only if none is found.
     #[cfg(target_os = "windows")]
     {
-        let vulkan_instance = eframe::wgpu::Instance::new(eframe::wgpu::InstanceDescriptor {
+        let vulkan_instance = eframe::wgpu::Instance::new(&eframe::wgpu::InstanceDescriptor {
             backends: eframe::wgpu::Backends::VULKAN,
             ..Default::default()
         });
@@ -56,7 +55,15 @@ fn main() -> eframe::Result<()> {
         if has_vulkan {
             tracing::info!("Vulkan available — using Vulkan backend for window transparency");
             native_options.wgpu_options = eframe::egui_wgpu::WgpuConfiguration {
-                supported_backends: eframe::wgpu::Backends::VULKAN,
+                wgpu_setup: eframe::egui_wgpu::WgpuSetup::CreateNew(
+                    eframe::egui_wgpu::WgpuSetupCreateNew {
+                        instance_descriptor: eframe::wgpu::InstanceDescriptor {
+                            backends: eframe::wgpu::Backends::VULKAN,
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    },
+                ),
                 ..Default::default()
             };
         } else {

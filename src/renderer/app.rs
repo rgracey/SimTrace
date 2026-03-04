@@ -191,7 +191,7 @@ impl eframe::App for SimTraceApp {
         )));
 
         egui::CentralPanel::default()
-            .frame(egui::Frame::none())
+            .frame(egui::Frame::NONE)
             .show(ctx, |ui| {
                 let screen = ui.max_rect();
                 let opacity = self.settings.overlay.opacity;
@@ -226,11 +226,11 @@ impl eframe::App for SimTraceApp {
                 );
                 ui.painter().rect_filled(
                     bar_rect,
-                    egui::Rounding {
-                        nw: 5.0,
-                        ne: 5.0,
-                        sw: 0.0,
-                        se: 0.0,
+                    egui::CornerRadius {
+                        nw: 5,
+                        ne: 5,
+                        sw: 0,
+                        se: 0,
                     },
                     with_alpha(BAR_BG, ba),
                 );
@@ -488,7 +488,7 @@ impl eframe::App for SimTraceApp {
                     ui.painter()
                         .rect_filled(panel_rect, 6.0, egui::Color32::from_rgb(20, 20, 20));
                     ui.painter()
-                        .rect_stroke(panel_rect, 6.0, egui::Stroke::new(1.0, BORDER));
+                        .rect_stroke(panel_rect, 6.0, egui::Stroke::new(1.0, BORDER), egui::StrokeKind::Middle);
                     let mut child = ui.new_child(
                         egui::UiBuilder::new()
                             .max_rect(panel_rect.shrink(12.0))
@@ -607,7 +607,7 @@ fn draw_telemetry(
                 3.0,
                 egui::Color32::from_rgba_unmultiplied(8, 8, 8, (a as f32 * 0.95) as u8),
             );
-            p.rect_stroke(track, 3.0, egui::Stroke::new(0.5, with_alpha(BORDER, a)));
+            p.rect_stroke(track, 3.0, egui::Stroke::new(0.5, with_alpha(BORDER, a)), egui::StrokeKind::Middle);
 
             // 50% tick mark
             let mid_y = top + h * 0.5;
