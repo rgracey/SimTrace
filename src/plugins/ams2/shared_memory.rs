@@ -68,42 +68,42 @@ impl Ams2SharedMemory {
         self.ptr.add(offset).read_volatile()
     }
 
-    // ── pCars2 field accessors ─────────────────────────────────────────────
+    // ── AMS2 field accessors ───────────────────────────────────────────────
     //
-    // Offsets verified against the pCars2 SDK SharedMemory.h:
-    //   offset 8     = mGameState (u32)
-    //   offset 10524 = mUnfilteredThrottle (f32)
-    //   offset 10528 = mUnfilteredBrake    (f32)
-    //   offset 10532 = mUnfilteredSteering (f32)  [-1..1 normalised]
-    //   offset 10536 = mUnfilteredClutch   (f32)
-    //   offset 10916 = mSpeed              (f32, m/s)
-    //   offset 10932 = mGearNumGears       (u32, packed nibbles)
-    //   offset 10940 = mAntiLockActive     (u8 bool)
+    // Offsets from the AMS2 shared memory SDK (Pack=8 struct layout):
+    //   offset 8    = mGameState           (u32)
+    //   offset 5152 = mUnfilteredThrottle  (f32)
+    //   offset 5156 = mUnfilteredBrake     (f32)
+    //   offset 5160 = mUnfilteredSteering  (f32)  [-1..1 normalised]
+    //   offset 5164 = mUnfilteredClutch    (f32)
+    //   offset 5828 = mSpeed               (f32, m/s)
+    //   offset 5856 = mGear                (u32, lower nibble = gear+1: 0→R, 1→N, 2→1st …)
+    //   offset 5868 = mAntiLockActive      (u8 bool)
 
     pub unsafe fn game_state(&self) -> u32 {
         self.u32_at(8)
     }
     pub unsafe fn unfiltered_throttle(&self) -> f32 {
-        self.f32_at(10524)
+        self.f32_at(5152)
     }
     pub unsafe fn unfiltered_brake(&self) -> f32 {
-        self.f32_at(10528)
+        self.f32_at(5156)
     }
     pub unsafe fn unfiltered_steering(&self) -> f32 {
-        self.f32_at(10532)
+        self.f32_at(5160)
     }
     pub unsafe fn unfiltered_clutch(&self) -> f32 {
-        self.f32_at(10536)
+        self.f32_at(5164)
     }
     pub unsafe fn speed(&self) -> f32 {
-        self.f32_at(10916)
+        self.f32_at(5828)
     }
     /// Lower nibble = gear encoded as gear+1 (0→R, 1→N, 2→1st …)
     pub unsafe fn gear_num_gears(&self) -> u32 {
-        self.u32_at(10932)
+        self.u32_at(5856)
     }
     pub unsafe fn anti_lock_active(&self) -> bool {
-        self.u8_at(10940) != 0
+        self.u8_at(5868) != 0
     }
 }
 
