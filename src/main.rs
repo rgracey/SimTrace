@@ -1,4 +1,5 @@
 //! SimTrace - Sim racing telemetry visualization
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 mod config;
 mod core;
@@ -11,14 +12,10 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use renderer::SimTraceApp;
 
 fn main() -> eframe::Result<()> {
-    // Initialize logging
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "simtrace=info".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    // Set up logging: always write to file; also write to stderr on non-Windows
+    // (on Windows the console is hidden so stderr is discarded).
+    let log_dir = config::AppSettings::config_dir();
+    let _log_guard = init_logging(log_dir.as_deref());
 
     // Load settings to restore last window geometry
     let saved = config::AppSettings::load_or_default();
@@ -76,4 +73,34 @@ fn main() -> eframe::Result<()> {
         native_options,
         Box::new(|cc| Ok(Box::new(SimTraceApp::new(cc)))),
     )
+}
+
+/// Initialise tracing: file sink always, stderr sink on non-Windows.
+/// Returns the worker guard that must be kept alive for the duration of the process.
+fn init_logging(log_dir: Option<&std::path::Path>) -> Option<tracing_appender::non_blocking::WorkerGuard> {
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "simtrace=info".into());
+
+    match log_dir.and_then(|d| {
+        std::fs::create_dir_all(d).ok()?;
+        Some(d.to_path_buf())
+    }) {
+        Some(dir) => {
+            let appender = tracing_appender::rolling::never(&dir, "simtrace.log");
+            let (writer, guard) = tracing_appender::non_blocking(appender);
+            tracing_subscriber::registry()
+                .with(filter)
+                .with(tracing_subscriber::fmt::layer().with_writer(writer))
+                .init();
+            Some(guard)
+        }
+        None => {
+            // No writable config dir — fall back to stderr only
+            tracing_subscriber::registry()
+                .with(filter)
+                .with(tracing_subscriber::fmt::layer())
+                .init();
+            None
+        }
+    }
 }

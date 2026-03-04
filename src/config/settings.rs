@@ -103,6 +103,13 @@ impl Default for AppSettings {
 }
 
 impl AppSettings {
+    /// Returns the platform-appropriate directory for config/log files.
+    pub fn config_dir() -> Option<PathBuf> {
+        dirs::config_dir()
+            .map(|p| p.join("simtrace"))
+            .or_else(|| dirs::home_dir().map(|p| p.join(".simtrace")))
+    }
+
     /// Returns the platform-appropriate path for the settings file.
     fn config_path() -> Option<PathBuf> {
         dirs::config_dir()

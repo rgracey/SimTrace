@@ -762,6 +762,14 @@ fn draw_config(
     color_row(ui, "Brake", &mut settings.colors.brake);
     color_row(ui, "ABS", &mut settings.colors.abs_active);
     color_row(ui, "Clutch", &mut settings.colors.clutch);
+
+    // ── Logs ─────────────────────────────────────────────────────────────────
+    section_header(ui, "LOGS");
+    if ui.add(styled_button("Open log folder")).clicked() {
+        if let Some(dir) = AppSettings::config_dir() {
+            open_in_file_manager(&dir);
+        }
+    }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -843,6 +851,15 @@ fn color_row(ui: &mut egui::Ui, label: &str, hex: &mut String) {
         }
         ui.label(egui::RichText::new(label).size(11.0).color(LABEL_MID));
     });
+}
+
+fn open_in_file_manager(path: &std::path::Path) {
+    #[cfg(target_os = "windows")]
+    let _ = std::process::Command::new("explorer").arg(path).spawn();
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").arg(path).spawn();
+    #[cfg(target_os = "linux")]
+    let _ = std::process::Command::new("xdg-open").arg(path).spawn();
 }
 
 fn plugin_display_name(plugin: &str) -> &str {
