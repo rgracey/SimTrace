@@ -26,9 +26,6 @@ pub struct GraphSettings {
     pub show_grid: bool,
     pub show_legend: bool,
     pub line_width: f32,
-    /// Target repaint rate for the overlay.
-    #[serde(default = "default_overlay_fps")]
-    pub overlay_fps: u32,
     /// Display speed in mph instead of kph.
     #[serde(default)]
     pub speed_mph: bool,
@@ -46,9 +43,6 @@ fn default_true() -> bool {
     true
 }
 
-fn default_overlay_fps() -> u32 {
-    60
-}
 
 /// Trace and bar colours (hex strings, e.g. `"#FF0000"`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,7 +112,6 @@ impl Default for AppSettings {
                 show_grid: true,
                 show_legend: true,
                 line_width: 2.0,
-                overlay_fps: 60,
                 speed_mph: false,
                 show_throttle: true,
                 show_brake: true,
@@ -257,7 +250,6 @@ mod tests {
             pinned = false
         "##;
         let s: AppSettings = toml::from_str(toml_str).unwrap();
-        assert_eq!(s.graph.overlay_fps, default_overlay_fps());
         assert_eq!(s.colors.clutch, default_clutch_color());
         assert!(!s.graph.speed_mph);
     }

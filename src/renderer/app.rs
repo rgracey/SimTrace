@@ -193,8 +193,6 @@ impl eframe::App for SimTraceApp {
             None
         };
 
-        let fps = self.settings.graph.overlay_fps;
-        ctx.request_repaint_after(std::time::Duration::from_secs_f64(1.0 / fps as f64));
         ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(
             MIN_WIDTH, MIN_HEIGHT,
         )));
@@ -853,7 +851,6 @@ fn draw_config(
     });
     ui.add_space(4.0);
     slider_row(ui, "Opacity", &mut settings.overlay.opacity, 0.1..=1.0, "");
-    slider_row_int(ui, "FPS", &mut settings.graph.overlay_fps, 10..=120, " fps");
     slider_row(
         ui,
         "Trace width",
@@ -967,24 +964,6 @@ fn slider_row(
     });
 }
 
-fn slider_row_int(
-    ui: &mut egui::Ui,
-    label: &str,
-    value: &mut u32,
-    range: std::ops::RangeInclusive<u32>,
-    suffix: &str,
-) {
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(label).size(11.0).color(LABEL_MID));
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.add(
-                egui::Slider::new(value, range)
-                    .suffix(suffix)
-                    .show_value(true),
-            );
-        });
-    });
-}
 
 fn styled_button(label: &str) -> egui::Button<'static> {
     egui::Button::new(egui::RichText::new(label.to_owned()).size(11.0))
