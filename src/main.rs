@@ -94,7 +94,7 @@ fn init_logging(
         Some(d.to_path_buf())
     }) {
         Some(dir) => {
-            let appender = tracing_appender::rolling::never(&dir, "simtrace.log");
+            let appender = tracing_appender::rolling::daily(&dir, "simtrace.log");
             let (writer, guard) = tracing_appender::non_blocking(appender);
             tracing_subscriber::registry()
                 .with(filter)
