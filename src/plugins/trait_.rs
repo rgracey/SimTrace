@@ -45,6 +45,16 @@ pub trait GamePlugin: Send + Sync {
     }
 }
 
+/// Returns the static list of `(id, display_name)` pairs available on this platform.
+///
+/// ACC only ships on Windows; the mock entry is always present.
+pub fn plugin_entries() -> &'static [(&'static str, &'static str)] {
+    &[
+        ("assetto_competizione", "Assetto Corsa Competizione"),
+        ("mock", "Mock (Simulated Data)"),
+    ]
+}
+
 /// Helper function to create a plugin by name
 pub fn create_plugin(name: &str) -> Option<Box<dyn GamePlugin>> {
     match name.to_lowercase().as_str() {

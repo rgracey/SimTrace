@@ -6,4 +6,4 @@ pub mod registry;
 pub mod trait_;
 
 pub use registry::PluginRegistry;
-pub use trait_::{create_plugin, GameConfig, GamePlugin};
+pub use trait_::{create_plugin, plugin_entries, GameConfig, GamePlugin};

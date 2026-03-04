@@ -779,10 +779,7 @@ fn draw_config(
         .width(ui.available_width())
         .selected_text(plugin_display_name(&settings.collector.plugin))
         .show_ui(ui, |ui| {
-            for (id, name) in &[
-                ("assetto_competizione", "Assetto Corsa Competizione"),
-                ("mock", "Mock (Simulated Data)"),
-            ] {
+            for (id, name) in crate::plugins::plugin_entries() {
                 ui.selectable_value(&mut settings.collector.plugin, id.to_string(), *name);
             }
         });
@@ -964,12 +961,12 @@ fn open_in_file_manager(path: &std::path::Path) {
     let _ = std::process::Command::new("xdg-open").arg(path).spawn();
 }
 
-fn plugin_display_name(plugin: &str) -> &str {
-    match plugin {
-        "assetto_competizione" => "Assetto Corsa Competizione",
-        "mock" | "test" => "Mock (Simulated Data)",
-        _ => plugin,
-    }
+fn plugin_display_name(id: &str) -> &str {
+    crate::plugins::plugin_entries()
+        .iter()
+        .find(|(entry_id, _)| *entry_id == id)
+        .map(|(_, name)| *name)
+        .unwrap_or(id)
 }
 
 // ── Stadium shape ─────────────────────────────────────────────────────────────
