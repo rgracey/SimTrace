@@ -28,5 +28,5 @@ dirs = "5.0"
 # Shared memory (Windows)
 [target.'cfg(windows)'.dependencies]
 memmap2 = "0.9"
-winapi = { version = "0.3", features = ["winnt", "handleapi", "memoryapi"] }
+winapi = { version = "0.3", features = ["winnt", "handleapi", "memoryapi", "errhandlingapi"] }
 
