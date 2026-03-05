@@ -116,11 +116,17 @@ impl<'a> PhasePlot<'a> {
         let axis_color = self.apply_opacity(self.colors.grid);
         let axis_stroke = Stroke::new(1.0, axis_color);
         painter.line_segment(
-            [Pos2::new(plot.min.x, plot.max.y), Pos2::new(plot.max.x, plot.max.y)],
+            [
+                Pos2::new(plot.min.x, plot.max.y),
+                Pos2::new(plot.max.x, plot.max.y),
+            ],
             axis_stroke,
         );
         painter.line_segment(
-            [Pos2::new(plot.min.x, plot.min.y), Pos2::new(plot.min.x, plot.max.y)],
+            [
+                Pos2::new(plot.min.x, plot.min.y),
+                Pos2::new(plot.min.x, plot.max.y),
+            ],
             axis_stroke,
         );
 
@@ -196,8 +202,7 @@ impl<'a> PhasePlot<'a> {
             .filter(|p| p.telemetry.brake > 0.01)
             .map(|point| {
                 let brake = point.telemetry.brake.clamp(0.0, 1.0);
-                let steer_norm =
-                    (point.telemetry.steering_angle.abs() / max_angle).clamp(0.0, 1.0);
+                let steer_norm = (point.telemetry.steering_angle.abs() / max_angle).clamp(0.0, 1.0);
                 let px = Pos2::new(
                     plot.min.x + steer_norm * plot.width(),
                     plot.min.y + (1.0 - brake) * plot.height(),

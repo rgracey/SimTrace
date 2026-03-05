@@ -650,13 +650,13 @@ fn draw_telemetry(
         let p = ui.painter();
 
         let is_braking = brake > 0.01;
-        let is_turning = current_steering.abs()
-            > settings.graph.trail_brake_threshold * max_steering_angle;
+        let is_turning =
+            current_steering.abs() > settings.graph.trail_brake_threshold * max_steering_angle;
         let brake_color = match (is_braking, abs_on && settings.graph.show_abs, is_turning) {
             (true, true, true) if settings.graph.show_abs_cornering => colors.abs_cornering,
-            (true, true, _)                                         => colors.abs_active,
-            (true, false, true) if settings.graph.show_trail_brake  => colors.trail_brake,
-            _                                                       => colors.brake,
+            (true, true, _) => colors.abs_active,
+            (true, false, true) if settings.graph.show_trail_brake => colors.trail_brake,
+            _ => colors.brake,
         };
 
         let specs: &[(f32, egui::Color32)] = &[
@@ -1068,7 +1068,6 @@ fn slider_row(
     });
 }
 
-
 fn styled_button(label: &str) -> egui::Button<'static> {
     egui::Button::new(egui::RichText::new(label.to_owned()).size(11.0))
         .fill(egui::Color32::from_rgb(38, 38, 38))
@@ -1139,11 +1138,7 @@ fn trail_color_section(
         }
     });
     ui.add_space(2.0);
-    ui.label(
-        egui::RichText::new(description)
-            .size(10.0)
-            .color(LABEL_DIM),
-    );
+    ui.label(egui::RichText::new(description).size(10.0).color(LABEL_DIM));
     ui.horizontal(|ui| {
         ui.checkbox(
             enabled,

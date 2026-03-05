@@ -56,7 +56,6 @@ fn default_trail_brake_threshold() -> f32 {
     0.05
 }
 
-
 /// Trace and bar colours (hex strings, e.g. `"#FF0000"`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ColorScheme {
