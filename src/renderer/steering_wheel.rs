@@ -41,10 +41,13 @@ impl SteeringWheel {
             Stroke::new(thickness, Color32::from_rgba_unmultiplied(30, 30, 30, a)),
         ));
 
-        // Normalise against max_angle and map to ±270° visual sweep so that full
-        // lock always reaches the 3/9 o'clock position.
+        // Normalise against a reduced effective max so typical racing inputs
+        // (which rarely exceed 20 % of hardware lock) produce a visible sweep.
+        // We scale to 1/5th of hardware lock (min 60°), so a 30° turn on a
+        // 450° half-lock wheel fills ~90° of arc instead of ~18°.
         let max_angle = max_angle.max(1.0);
-        let sweep_deg = (angle_deg / max_angle).clamp(-1.0, 1.0) * 270.0;
+        let effective_max = (max_angle / 5.0).max(60.0);
+        let sweep_deg = (angle_deg / effective_max).clamp(-1.0, 1.0) * 270.0;
         let start = -FRAC_PI_2; // 12 o'clock
 
         if sweep_deg.abs() > 0.5 {

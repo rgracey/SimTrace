@@ -23,7 +23,6 @@ pub struct TraceGraph<'a> {
     settings: &'a GraphSettings,
     colors: &'a ParsedColors,
     opacity: f32,
-    max_steering_angle: f32,
 }
 
 impl<'a> TraceGraph<'a> {
@@ -32,14 +31,12 @@ impl<'a> TraceGraph<'a> {
         settings: &'a GraphSettings,
         colors: &'a ParsedColors,
         opacity: f32,
-        max_steering_angle: f32,
     ) -> Self {
         Self {
             buffer,
             settings,
             colors,
             opacity,
-            max_steering_angle,
         }
     }
 
@@ -156,7 +153,7 @@ impl<'a> TraceGraph<'a> {
             return;
         }
 
-        let steering_threshold = self.settings.trail_brake_threshold * self.max_steering_angle;
+        let steering_threshold = self.settings.trail_brake_threshold;
 
         let mut segments: Vec<(Vec<Pos2>, BrakeState)> = Vec::new();
         let mut current_pts: Vec<Pos2> = Vec::new();

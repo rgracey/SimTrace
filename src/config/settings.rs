@@ -41,7 +41,7 @@ pub struct GraphSettings {
     pub show_trail_brake: bool,
     #[serde(default = "default_true")]
     pub show_abs_cornering: bool,
-    /// Fraction of max_steering_angle above which steering is considered "turning" (0.0–1.0).
+    /// Minimum steering angle in degrees above which steering is considered "turning".
     #[serde(default = "default_trail_brake_threshold")]
     pub trail_brake_threshold: f32,
     #[serde(default)]
@@ -53,7 +53,7 @@ fn default_true() -> bool {
 }
 
 fn default_trail_brake_threshold() -> f32 {
-    0.05
+    5.0
 }
 
 /// Trace and bar colours (hex strings, e.g. `"#FF0000"`).
@@ -148,7 +148,7 @@ impl Default for AppSettings {
                 show_clutch: true,
                 show_trail_brake: true,
                 show_abs_cornering: true,
-                trail_brake_threshold: 0.05,
+                trail_brake_threshold: 5.0,
                 phase_plot_open: false,
             },
             colors: ColorScheme {

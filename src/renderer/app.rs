@@ -567,7 +567,7 @@ impl eframe::App for SimTraceApp {
                     let close_center = egui::Pos2::new(vp.max.x - 14.0, vp.min.y + 12.0);
                     if ctx.input(|i| {
                         let pressed = i.pointer.button_pressed(egui::PointerButton::Primary);
-                        let on_close = i.pointer.interact_pos().map_or(false, |p| {
+                        let on_close = i.pointer.interact_pos().is_some_and(|p| {
                             (p.x - close_center.x).hypot(p.y - close_center.y) < 12.0
                         });
                         pressed && !on_close
@@ -635,7 +635,6 @@ fn draw_telemetry(
             &settings.graph,
             colors,
             opacity,
-            max_steering_angle,
         )
         .show(ui, egui::vec2(graph_w, graph_h));
 
@@ -650,8 +649,7 @@ fn draw_telemetry(
         let p = ui.painter();
 
         let is_braking = brake > 0.01;
-        let is_turning =
-            current_steering.abs() > settings.graph.trail_brake_threshold * max_steering_angle;
+        let is_turning = current_steering.abs() > settings.graph.trail_brake_threshold;
         let brake_color = match (is_braking, abs_on && settings.graph.show_abs, is_turning) {
             (true, true, true) if settings.graph.show_abs_cornering => colors.abs_cornering,
             (true, true, _) => colors.abs_active,
@@ -985,8 +983,8 @@ fn draw_config(
             ui,
             "Steer threshold",
             &mut settings.graph.trail_brake_threshold,
-            0.01..=0.30,
-            "",
+            0.5..=45.0,
+            "°",
         );
         trail_color_section(
             ui,

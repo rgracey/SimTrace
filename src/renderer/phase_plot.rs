@@ -61,6 +61,24 @@ impl<'a> PhasePlot<'a> {
     }
 
     fn draw(&self, painter: &Painter, rect: Rect) {
+        // Compute the effective steering range from recent data so the X axis
+        // auto-scales to what the driver is actually using.  A floor of 5 % of
+        // hardware max prevents the axis from over-zooming on tiny/noisy inputs.
+        let steer_floor = (self.max_steering_angle * 0.05).max(5.0);
+        let effective_steer_max = self
+            .buffer
+            .map(|buf| {
+                let now = std::time::Instant::now();
+                let window_dur = Duration::from_secs_f64(self.settings.window_seconds);
+                buf.get_points()
+                    .into_iter()
+                    .filter(|p| now.duration_since(p.captured_at) <= window_dur)
+                    .map(|p| p.telemetry.steering_angle.abs())
+                    .fold(0.0_f32, f32::max)
+                    .max(steer_floor)
+            })
+            .unwrap_or(steer_floor);
+
         let bg = self.apply_opacity(self.colors.background);
 
         // Rounded background + subtle border.
@@ -144,12 +162,18 @@ impl<'a> PhasePlot<'a> {
                 dim,
             );
         }
-        for (steer_val, label) in &[(0.0_f32, "0"), (0.5, "50"), (1.0, "100%")] {
+        let steer_mid_label = format!("{:.0}°", effective_steer_max * 0.5);
+        let steer_max_label = format!("{:.0}°", effective_steer_max);
+        for (steer_val, label) in [
+            (0.0_f32, "0°"),
+            (0.5, steer_mid_label.as_str()),
+            (1.0, steer_max_label.as_str()),
+        ] {
             let x = plot.min.x + steer_val * plot.width();
             painter.text(
                 Pos2::new(x, plot.max.y + 3.0),
                 egui::Align2::CENTER_TOP,
-                *label,
+                label,
                 font_tick.clone(),
                 dim,
             );
@@ -186,8 +210,7 @@ impl<'a> PhasePlot<'a> {
             .filter(|p| now.duration_since(p.captured_at) <= window_dur)
             .collect();
 
-        let steering_threshold = self.settings.trail_brake_threshold * self.max_steering_angle;
-        let max_angle = self.max_steering_angle.max(1.0);
+        let steering_threshold = self.settings.trail_brake_threshold;
 
         // How long (seconds) a braking trail takes to fully fade after the
         // driver releases the pedal. Independent of window_seconds so the
@@ -202,7 +225,8 @@ impl<'a> PhasePlot<'a> {
             .filter(|p| p.telemetry.brake > 0.01)
             .map(|point| {
                 let brake = point.telemetry.brake.clamp(0.0, 1.0);
-                let steer_norm = (point.telemetry.steering_angle.abs() / max_angle).clamp(0.0, 1.0);
+                let steer_norm =
+                    (point.telemetry.steering_angle.abs() / effective_steer_max).clamp(0.0, 1.0);
                 let px = Pos2::new(
                     plot.min.x + steer_norm * plot.width(),
                     plot.min.y + (1.0 - brake) * plot.height(),
