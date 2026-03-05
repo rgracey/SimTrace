@@ -30,23 +30,89 @@ impl MockPlugin {
         self.last_update = Some(std::time::Instant::now());
         self.simulation_time += elapsed;
 
-        // Simulate throttle/brake pattern (like a chicane)
-        let cycle = (self.simulation_time * 0.5).sin();
-        let throttle = if cycle > 0.0 { cycle } else { 0.0 };
-        let brake = if cycle < -0.3 {
-            (-cycle - 0.3).max(0.0)
+        let t = self.simulation_time;
+
+        // Vary corner period slightly so it never feels like a perfect loop.
+        let period = 6.0 + (t * 0.07).sin() * 0.8;
+        let phase = (t % period) / period; // 0..1 within each corner cycle
+
+        // ── Phase boundaries ─────────────────────────────────────────────────
+        // 0.00 – 0.38  straight, full throttle
+        // 0.38 – 0.50  brake zone: hard initial bite, trail off
+        // 0.50 – 0.68  apex: brake fully released, max steering
+        // 0.68 – 0.88  exit: throttle builds, steering unwinds
+        // 0.88 – 1.00  full throttle to next straight
+
+        // Smooth-step helper: ease-in-out curve for natural transitions.
+        let smooth = |x: f32| x * x * (3.0 - 2.0 * x);
+
+        // ── Brake ────────────────────────────────────────────────────────────
+        let brake = if phase < 0.38 {
+            0.0
+        } else if phase < 0.44 {
+            // Hard initial application — ramps to peak quickly.
+            let f = (phase - 0.38) / 0.06;
+            smooth(f) * (0.88 + (t * 1.3).sin() * 0.08)
+        } else if phase < 0.68 {
+            // Trail braking: progressive release through the corner.
+            let f = (phase - 0.44) / 0.24;
+            (1.0 - smooth(f)) * (0.88 + (t * 1.3).sin() * 0.08)
         } else {
             0.0
         };
-        let steering_angle = cycle * 180.0;
-        let speed = (100.0 - brake * 80.0).max(20.0);
-        let abs_active = brake > 0.6;
-        let rpm = 8000.0 + throttle * 2000.0;
 
-        // Clutch: brief pulses during braking, simulating downshifts
-        let clutch_pulse = ((self.simulation_time * 2.5).sin() + 1.0) * 0.5;
-        let clutch = if brake > 0.1 {
-            clutch_pulse * 0.85
+        // ── Throttle ─────────────────────────────────────────────────────────
+        let throttle = if phase < 0.38 {
+            // Straight — full throttle with a small ripple from road bumps.
+            0.88 + (t * 4.3).sin() * 0.04 + (t * 2.1).sin() * 0.05
+        } else if phase < 0.46 {
+            // Lift at the brake point — quick but not instant.
+            let f = (phase - 0.38) / 0.08;
+            (1.0 - smooth(f.min(1.0))) * 0.9
+        } else if phase < 0.66 {
+            // Coasting through corner.
+            0.0
+        } else if phase < 0.88 {
+            // Progressive throttle application on exit.
+            let f = (phase - 0.66) / 0.22;
+            smooth(f) * (0.9 + (t * 0.9).sin() * 0.06)
+        } else {
+            0.88 + (t * 4.3).sin() * 0.04
+        };
+
+        // ── Steering ─────────────────────────────────────────────────────────
+        let max_steer = 340.0 + (t * 0.11).sin() * 40.0; // vary corner tightness
+        let steer_base = if phase < 0.38 {
+            (t * 0.4).sin() * 15.0 // gentle track-following on straight
+        } else if phase < 0.68 {
+            let f = (phase - 0.38) / 0.30;
+            let peak = if f < 0.5 { smooth(f * 2.0) } else { 1.0 };
+            peak * max_steer
+        } else if phase < 0.90 {
+            let f = (phase - 0.68) / 0.22;
+            (1.0 - smooth(f)) * max_steer
+        } else {
+            0.0
+        };
+        // Erratic corrections while braking — makes the phase plot interesting.
+        let wobble = (t * 3.7).sin() * 40.0 + (t * 7.1).sin() * 20.0;
+        let steering_angle = steer_base + wobble * brake;
+
+        // ── Derived channels ─────────────────────────────────────────────────
+        let speed = (180.0 - brake * 130.0 - (1.0 - throttle) * 20.0).max(40.0);
+        let abs_active = brake > 0.72 && phase < 0.47;
+        let rpm = 4000.0 + throttle * 6000.0 + (t * 8.0).sin() * 200.0;
+        let gear = match speed as u32 {
+            0..=60 => 2,
+            61..=100 => 3,
+            101..=140 => 4,
+            _ => 5,
+        };
+
+        // Clutch blip on downshifts (brief pulse as brake ramps up).
+        let clutch = if (0.38..0.46).contains(&phase) {
+            let f = (phase - 0.38) / 0.08;
+            ((t * 18.0).sin() * 0.5 + 0.5) * (1.0 - f) * 0.9
         } else {
             0.0
         };
@@ -57,11 +123,11 @@ impl MockPlugin {
             clutch: clutch.clamp(0.0, 1.0),
             steering_angle,
             speed: speed / 3.6,
-            gear: if speed < 5.0 { 1 } else { 3 },
+            gear,
             rpm,
             abs_active,
             tc_active: false,
-            track_position: (self.simulation_time * 0.01).fract(),
+            track_position: (t * 0.01).fract(),
         }
     }
 }
