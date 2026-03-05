@@ -26,7 +26,11 @@ impl PluginRegistry {
     /// Discover available plugins
     fn discover_plugins() -> Vec<String> {
         #[cfg(windows)]
-        return vec!["assetto_competizione".to_string(), "ams2".to_string()];
+        return vec![
+            "assetto_competizione".to_string(),
+            "ams2".to_string(),
+            "iracing".to_string(),
+        ];
 
         #[cfg(not(windows))]
         return vec!["test".to_string()];

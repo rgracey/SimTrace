@@ -630,13 +630,8 @@ fn draw_telemetry(
     ui.spacing_mut().item_spacing.x = 0.0;
     ui.horizontal(|ui| {
         // ── Trace graph ──────────────────────────────────────────────────────
-        crate::renderer::TraceGraph::new(
-            buffer.map(|v| &**v),
-            &settings.graph,
-            colors,
-            opacity,
-        )
-        .show(ui, egui::vec2(graph_w, graph_h));
+        crate::renderer::TraceGraph::new(buffer.map(|v| &**v), &settings.graph, colors, opacity)
+            .show(ui, egui::vec2(graph_w, graph_h));
 
         // Gap between graph and bars
         ui.allocate_exact_size(egui::vec2(gap, available.height()), egui::Sense::hover());

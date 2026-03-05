@@ -52,6 +52,7 @@ pub fn plugin_entries() -> &'static [(&'static str, &'static str)] {
     &[
         ("assetto_competizione", "Assetto Corsa Competizione"),
         ("ams2", "Automobilista 2"),
+        ("iracing", "iRacing"),
         ("mock", "Mock (Simulated Data)"),
     ]
 }
@@ -74,6 +75,7 @@ pub fn create_plugin(name: &str) -> Option<Box<dyn GamePlugin>> {
         "ams2" | "automobilista 2" | "automobilista2" => {
             Some(Box::new(crate::plugins::ams2::Ams2Plugin::new()))
         }
+        "iracing" | "iracing_sdk" => Some(Box::new(crate::plugins::iracing::IracingPlugin::new())),
         "mock" | "test" => Some(Box::new(crate::plugins::mock::MockPlugin::new())),
         _ => None,
     }

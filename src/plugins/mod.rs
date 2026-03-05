@@ -2,6 +2,7 @@
 
 pub mod ams2;
 pub mod assetto_competizione;
+pub mod iracing;
 pub mod mock;
 pub mod registry;
 pub mod trait_;

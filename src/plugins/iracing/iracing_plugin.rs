@@ -1,4 +1,4 @@
-//! AMS2 plugin — reads pedal/steering/speed data via the pCars2 shared memory API.
+//! iRacing plugin — reads telemetry via the iRacing SDK shared memory API.
 
 use anyhow::Result;
 
@@ -6,25 +6,20 @@ use crate::core::TelemetryData;
 use crate::plugins::{GameConfig, GamePlugin};
 
 #[cfg(windows)]
-use super::shared_memory::Ams2SharedMemory;
+use super::shared_memory::IracingSharedMemory;
 #[cfg(windows)]
 use crate::core::VehicleTelemetry;
 #[cfg(windows)]
+use std::f32::consts::PI;
+#[cfg(windows)]
 use tracing::{info, warn};
 
-/// Game states from the pCars2 shared memory (mGameState field).
-#[cfg(windows)]
-mod game_state {
-    pub const EXITED: u32 = 0;
-    pub const FRONT_END: u32 = 1;
-}
-
-pub struct Ams2Plugin {
+pub struct IracingPlugin {
     #[cfg(windows)]
-    mem: Option<Ams2SharedMemory>,
+    mem: Option<IracingSharedMemory>,
 }
 
-impl Ams2Plugin {
+impl IracingPlugin {
     pub fn new() -> Self {
         Self {
             #[cfg(windows)]
@@ -33,28 +28,28 @@ impl Ams2Plugin {
     }
 }
 
-impl Default for Ams2Plugin {
+impl Default for IracingPlugin {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl GamePlugin for Ams2Plugin {
+impl GamePlugin for IracingPlugin {
     fn name(&self) -> &str {
-        "Automobilista 2"
+        "iRacing"
     }
 
     fn connect(&mut self) -> Result<()> {
         #[cfg(windows)]
         {
-            match Ams2SharedMemory::open() {
+            match IracingSharedMemory::open() {
                 Ok(mem) => {
-                    info!("Connected to AMS2 shared memory");
+                    info!("Connected to iRacing shared memory");
                     self.mem = Some(mem);
                     Ok(())
                 }
                 Err(e) => {
-                    warn!("AMS2 shared memory unavailable: {}", e);
+                    warn!("iRacing shared memory unavailable: {}", e);
                     Err(e)
                 }
             }
@@ -62,7 +57,7 @@ impl GamePlugin for Ams2Plugin {
         #[cfg(not(windows))]
         {
             Err(anyhow::anyhow!(
-                "AMS2 plugin requires Windows (shared memory is Windows-only)"
+                "iRacing plugin requires Windows (shared memory is Windows-only)"
             ))
         }
     }
@@ -71,14 +66,17 @@ impl GamePlugin for Ams2Plugin {
         #[cfg(windows)]
         {
             self.mem = None;
-            info!("Disconnected from AMS2 shared memory");
+            info!("Disconnected from iRacing shared memory");
         }
     }
 
     fn is_connected(&self) -> bool {
         #[cfg(windows)]
         {
-            self.mem.is_some()
+            // Verify the session is still active in case iRacing left the session.
+            self.mem
+                .as_ref()
+                .is_some_and(|m| unsafe { m.is_connected() })
         }
         #[cfg(not(windows))]
         {
@@ -89,7 +87,7 @@ impl GamePlugin for Ams2Plugin {
     fn is_available(&self) -> bool {
         #[cfg(windows)]
         {
-            Ams2SharedMemory::is_available()
+            IracingSharedMemory::is_available()
         }
         #[cfg(not(windows))]
         {
@@ -105,22 +103,26 @@ impl GamePlugin for Ams2Plugin {
                 None => return Ok(None),
             };
 
-            // Safety: pointer is valid while mem is alive.
-            let game_state = unsafe { mem.game_state() };
-
-            // Only emit data when a session is active (not in menus / exited).
-            if game_state == game_state::EXITED || game_state == game_state::FRONT_END {
+            if !unsafe { mem.is_connected() } {
+                // Session ended — drop the mapping so connect() will rescan var headers.
+                self.mem = None;
                 return Ok(None);
             }
 
-            let throttle = unsafe { mem.unfiltered_throttle() }.clamp(0.0, 1.0);
-            let brake = unsafe { mem.unfiltered_brake() }.clamp(0.0, 1.0);
-            let clutch = unsafe { mem.unfiltered_clutch() }.clamp(0.0, 1.0);
-            // Steering: normalised -1..1 → degrees (450° half-lock matches ACC convention)
-            let steering_angle = unsafe { mem.unfiltered_steering() }.clamp(-1.0, 1.0) * 450.0;
-            let speed = unsafe { mem.speed() }; // already m/s
-            let gear = unsafe { mem.gear() };
-            let abs_active = unsafe { mem.anti_lock_active() };
+            let buf = unsafe { mem.current_buf_offset() };
+
+            let throttle = unsafe { mem.throttle(buf) }.clamp(0.0, 1.0);
+            let brake = unsafe { mem.brake(buf) }.clamp(0.0, 1.0);
+            // iRacing Clutch: 0 = pedal pressed (disengaged), 1 = pedal released (engaged).
+            // Invert so that our model convention (1.0 = fully pressed) is respected.
+            let clutch = (1.0 - unsafe { mem.clutch_raw(buf) }).clamp(0.0, 1.0);
+            // SteeringWheelAngle: radians, positive = CCW (left). Convert to degrees, positive = right.
+            let steering_angle = unsafe { mem.steering_wheel_angle_rad(buf) } * -(180.0 / PI);
+            let speed = unsafe { mem.speed(buf) };
+            let gear = unsafe { mem.gear(buf) };
+            let rpm = unsafe { mem.rpm(buf) };
+            let abs_active = unsafe { mem.abs_active(buf) };
+            let track_position = unsafe { mem.lap_dist_pct(buf) }.clamp(0.0, 1.0);
 
             let vehicle = VehicleTelemetry {
                 throttle,
@@ -129,10 +131,10 @@ impl GamePlugin for Ams2Plugin {
                 steering_angle,
                 speed,
                 gear,
-                rpm: 0.0, // not read to keep offsets simple
+                rpm,
                 abs_active,
                 tc_active: false,
-                track_position: 0.0,
+                track_position,
             };
 
             let timestamp = std::time::SystemTime::now()
@@ -154,6 +156,8 @@ impl GamePlugin for Ams2Plugin {
 
     fn get_config(&self) -> GameConfig {
         GameConfig {
+            // iRacing typically uses ±PI radians full lock, but varies by car.
+            // 450° is a reasonable UI default (same as ACC/AMS2 convention).
             max_steering_angle: 450.0,
             pedal_deadzone: 0.01,
             abs_threshold: 0.01,
