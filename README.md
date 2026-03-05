@@ -12,7 +12,10 @@ A lightweight sim racing telemetry overlay. Displays pedal inputs, steering angl
 - **Pedal bars** — live clutch, brake, and throttle with ABS indication
 - **Steering wheel** — visual angle indicator with gear and speed readout
 - **Transparent overlay** — drag to position, drag the corner to resize
-- **Configurable** — opacity, FPS, speed unit, colours, and trace window length
+- **Configurable** — opacity, speed unit, colours, and trace window length
+- **Trail braking help** — Useful utilities to help with trail braking
+  - **Brake trace colouring** - Configurable colouring showing braking and ABS activation during cornering
+  - **Braking x steering phase plot** - Live indicator to monitor corner entry/exit in real time
 
 ## Supported games
 
