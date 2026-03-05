@@ -19,7 +19,6 @@ mod game_state {
     pub const FRONT_END: u32 = 1;
 }
 
-
 pub struct Ams2Plugin {
     #[cfg(windows)]
     mem: Option<Ams2SharedMemory>,
