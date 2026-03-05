@@ -2,7 +2,6 @@
 //!
 //! AMS2 exposes the pCars2 shared memory API under the mapping name `$pcars2$`.
 //! All field reads use raw byte offsets derived from the pCars2 SDK struct layout.
-#![cfg(windows)]
 #![allow(dead_code)]
 
 use anyhow::{anyhow, Result};

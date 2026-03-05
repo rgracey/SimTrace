@@ -587,6 +587,7 @@ impl eframe::App for SimTraceApp {
 
 // ── Telemetry layout ─────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 fn draw_telemetry(
     ui: &mut egui::Ui,
     settings: &mut AppSettings,
