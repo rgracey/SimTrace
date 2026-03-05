@@ -19,10 +19,10 @@ A lightweight sim racing telemetry overlay. Displays pedal inputs, steering angl
 
 ## Supported games
 
-| Game                          |
-| ----------------------------- |
-| Assetto Corsa Competizione    |
-| Automobilista 2 (in progress) |
+| Game                          | Notes                                    |
+| ----------------------------- |------------------------------------------|
+| Assetto Corsa Competizione    |                                          |
+| Automobilista 2               | [Enable shared memory](#automobilista-2) |
 
 ## Installation
 
@@ -36,6 +36,10 @@ Download the latest `.exe` from the [Releases](../../releases) page. No installe
 4. Click **Save** to persist your settings between sessions.
 
 The overlay fades out when your cursor leaves it and reappears on hover.
+
+## Automobilista 2
+
+Enable shared memory: (from the main menu) `Options (top right) > System > Shared Memory` and setting it to `Project CARS 2`
 
 ## Building from source
 

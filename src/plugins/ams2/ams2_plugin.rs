@@ -19,12 +19,6 @@ mod game_state {
     pub const FRONT_END: u32 = 1;
 }
 
-/// Decodes the packed `mGearNumGears` field.
-/// Lower nibble stores gear+1: 0→Reverse(-1), 1→Neutral(0), 2→1st(1), …
-#[cfg(windows)]
-fn decode_gear(gear_num_gears: u32) -> i32 {
-    (gear_num_gears & 0x0F) as i32 - 1
-}
 
 pub struct Ams2Plugin {
     #[cfg(windows)]
@@ -126,7 +120,7 @@ impl GamePlugin for Ams2Plugin {
             // Steering: normalised -1..1 → degrees (450° half-lock matches ACC convention)
             let steering_angle = unsafe { mem.unfiltered_steering() }.clamp(-1.0, 1.0) * 450.0;
             let speed = unsafe { mem.speed() }; // already m/s
-            let gear = decode_gear(unsafe { mem.gear_num_gears() });
+            let gear = unsafe { mem.gear() };
             let abs_active = unsafe { mem.anti_lock_active() };
 
             let vehicle = VehicleTelemetry {

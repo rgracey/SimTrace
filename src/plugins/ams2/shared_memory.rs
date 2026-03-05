@@ -6,6 +6,7 @@
 #![allow(dead_code)]
 
 use anyhow::{anyhow, Result};
+use winapi::um::errhandlingapi::GetLastError;
 use winapi::um::handleapi::CloseHandle;
 use winapi::um::memoryapi::{MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, FILE_MAP_READ};
 use winapi::um::winnt::HANDLE;
@@ -30,7 +31,10 @@ impl Ams2SharedMemory {
             let wide = to_wide(Self::MAPPING_NAME);
             let h = OpenFileMappingW(FILE_MAP_READ, 0, wide.as_ptr());
             if h.is_null() {
-                return Err(anyhow!("AMS2 shared memory not found — is AMS2 running?"));
+                let err = GetLastError();
+                return Err(anyhow!(
+                    "AMS2 shared memory not found (Windows error {err}) — is AMS2 running with Shared Memory enabled in Options → Gameplay?"
+                ));
             }
             let ptr = MapViewOfFile(h, FILE_MAP_READ, 0, 0, 0) as *const u8;
             if ptr.is_null() {
@@ -70,40 +74,48 @@ impl Ams2SharedMemory {
 
     // ── AMS2 field accessors ───────────────────────────────────────────────
     //
-    // Offsets from the AMS2 shared memory SDK (Pack=8 struct layout):
-    //   offset 8    = mGameState           (u32)
-    //   offset 5152 = mUnfilteredThrottle  (f32)
-    //   offset 5156 = mUnfilteredBrake     (f32)
-    //   offset 5160 = mUnfilteredSteering  (f32)  [-1..1 normalised]
-    //   offset 5164 = mUnfilteredClutch    (f32)
-    //   offset 5828 = mSpeed               (f32, m/s)
-    //   offset 5856 = mGear                (u32, lower nibble = gear+1: 0→R, 1→N, 2→1st …)
-    //   offset 5868 = mAntiLockActive      (u8 bool)
+    // Offsets computed from SharedMemory.h (MSVC default pack=8, effective pack=4):
+    //
+    //   ParticipantInfo is 100 bytes:
+    //     bool mIsActive(1) + char mName[64](64) + pad(3) + float[3](12) +
+    //     float(4) + uint(4) + uint(4) + uint(4) + int(4) = 100 bytes
+    //
+    //   Main struct header before participant array: 28 bytes
+    //   Participant array: 64 × 100 = 6400 bytes → ends at offset 6428
+    //
+    //   offset    8 = mGameState           (u32)
+    //   offset 6428 = mUnfilteredThrottle  (f32)
+    //   offset 6432 = mUnfilteredBrake     (f32)
+    //   offset 6436 = mUnfilteredSteering  (f32)  [-1..1 normalised]
+    //   offset 6440 = mUnfilteredClutch    (f32)
+    //   offset 6848 = mSpeed               (f32, m/s)
+    //   offset 6876 = mGear                (i32, -1=Reverse 0=Neutral 1=1st …)
+    //   offset 6888 = mAntiLockActive      (u8 bool)
 
     pub unsafe fn game_state(&self) -> u32 {
         self.u32_at(8)
     }
     pub unsafe fn unfiltered_throttle(&self) -> f32 {
-        self.f32_at(5152)
+        self.f32_at(6428)
     }
     pub unsafe fn unfiltered_brake(&self) -> f32 {
-        self.f32_at(5156)
+        self.f32_at(6432)
     }
     pub unsafe fn unfiltered_steering(&self) -> f32 {
-        self.f32_at(5160)
+        self.f32_at(6436)
     }
     pub unsafe fn unfiltered_clutch(&self) -> f32 {
-        self.f32_at(5164)
+        self.f32_at(6440)
     }
     pub unsafe fn speed(&self) -> f32 {
-        self.f32_at(5828)
+        self.f32_at(6848)
     }
-    /// Lower nibble = gear encoded as gear+1 (0→R, 1→N, 2→1st …)
-    pub unsafe fn gear_num_gears(&self) -> u32 {
-        self.u32_at(5856)
+    /// mGear: -1 = Reverse, 0 = Neutral, 1 = 1st gear, etc.
+    pub unsafe fn gear(&self) -> i32 {
+        (self.ptr.add(6876) as *const i32).read_volatile()
     }
     pub unsafe fn anti_lock_active(&self) -> bool {
-        self.u8_at(5868) != 0
+        self.u8_at(6888) != 0
     }
 }
 
