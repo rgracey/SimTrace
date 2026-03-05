@@ -3,7 +3,7 @@
 A lightweight sim racing telemetry overlay. Displays pedal inputs, steering angle, gear, and speed in real time as a transparent overlay on top of your game.
 
 ## Demo
-
+A demo of SimTrace in action showing the (toggleable) braking x steering phase plot on the left and brake/throttle traces on the right. 
 ![SimTrace Demo](docs/media/SimTrace.gif)
 
 ## Features
