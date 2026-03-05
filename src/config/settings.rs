@@ -37,10 +37,23 @@ pub struct GraphSettings {
     pub show_abs: bool,
     #[serde(default = "default_true")]
     pub show_clutch: bool,
+    #[serde(default = "default_true")]
+    pub show_trail_brake: bool,
+    #[serde(default = "default_true")]
+    pub show_abs_cornering: bool,
+    /// Fraction of max_steering_angle above which steering is considered "turning" (0.0–1.0).
+    #[serde(default = "default_trail_brake_threshold")]
+    pub trail_brake_threshold: f32,
+    #[serde(default)]
+    pub phase_plot_open: bool,
 }
 
 fn default_true() -> bool {
     true
+}
+
+fn default_trail_brake_threshold() -> f32 {
+    0.05
 }
 
 
@@ -55,16 +68,29 @@ pub struct ColorScheme {
     pub background: String,
     pub grid: String,
     pub text: String,
+    #[serde(default = "default_trail_brake_color")]
+    pub trail_brake: String,
+    #[serde(default = "default_abs_cornering_color")]
+    pub abs_cornering: String,
 }
 
 fn default_clutch_color() -> String {
     "#AA44FF".to_string()
 }
 
+fn default_trail_brake_color() -> String {
+    "#00BBFF".to_string()
+}
+
+fn default_abs_cornering_color() -> String {
+    "#FF44AA".to_string()
+}
+
 /// Pre-parsed version of [`ColorScheme`] holding `Color32` values ready for rendering.
 ///
 /// Derive once per settings change via [`ParsedColors::from_scheme`] instead of
 /// calling `AppSettings::parse_color` (hex → Color32) on every frame.
+#[derive(Clone)]
 pub struct ParsedColors {
     pub throttle: egui::Color32,
     pub brake: egui::Color32,
@@ -73,6 +99,8 @@ pub struct ParsedColors {
     pub background: egui::Color32,
     pub grid: egui::Color32,
     pub text: egui::Color32,
+    pub trail_brake: egui::Color32,
+    pub abs_cornering: egui::Color32,
 }
 
 impl ParsedColors {
@@ -85,6 +113,8 @@ impl ParsedColors {
             background: AppSettings::parse_color(&scheme.background),
             grid: AppSettings::parse_color(&scheme.grid),
             text: AppSettings::parse_color(&scheme.text),
+            trail_brake: AppSettings::parse_color(&scheme.trail_brake),
+            abs_cornering: AppSettings::parse_color(&scheme.abs_cornering),
         }
     }
 }
@@ -117,6 +147,10 @@ impl Default for AppSettings {
                 show_brake: true,
                 show_abs: true,
                 show_clutch: true,
+                show_trail_brake: true,
+                show_abs_cornering: true,
+                trail_brake_threshold: 0.05,
+                phase_plot_open: false,
             },
             colors: ColorScheme {
                 throttle: "#00FF00".to_string(),
@@ -126,6 +160,8 @@ impl Default for AppSettings {
                 background: "#1A1A1A".to_string(),
                 grid: "#333333".to_string(),
                 text: "#FFFFFF".to_string(),
+                trail_brake: "#00BBFF".to_string(),
+                abs_cornering: "#FF44AA".to_string(),
             },
             overlay: OverlaySettings {
                 width: 600.0,

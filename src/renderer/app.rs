@@ -522,6 +522,66 @@ impl eframe::App for SimTraceApp {
                     }
                 }
             });
+
+        // ── Phase plot viewport ───────────────────────────────────────────────
+        if self.settings.graph.phase_plot_open {
+            let buffer_arc = self.buffer.clone();
+            let graph_settings = self.settings.graph.clone();
+            let colors = self.parsed_colors.clone();
+            let opacity = self.settings.overlay.opacity;
+            let max_steering_angle = self.max_steering_angle;
+
+            let close_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let close_arc = close_flag.clone();
+
+            ctx.show_viewport_immediate(
+                egui::ViewportId::from_hash_of("phase_plot"),
+                egui::ViewportBuilder::default()
+                    .with_title("Brake / Steer")
+                    .with_inner_size([240.0, 240.0])
+                    .with_transparent(true)
+                    .with_decorations(false)
+                    .with_window_level(egui::WindowLevel::AlwaysOnTop),
+                |ctx, _class| {
+                    egui::CentralPanel::default()
+                        .frame(egui::Frame::NONE)
+                        .show(ctx, |ui| {
+                            let size = ui.available_size();
+                            let closed = crate::renderer::PhasePlot::new(
+                                Some(&*buffer_arc),
+                                &graph_settings,
+                                &colors,
+                                opacity,
+                                max_steering_angle,
+                            )
+                            .show(ui, size);
+                            if closed {
+                                close_arc.store(true, std::sync::atomic::Ordering::Relaxed);
+                            }
+                        });
+                    // Drag the window by clicking anywhere except the close button
+                    // (close button is 20×20, centered at top-right corner offset 14, 12).
+                    // NOTE: viewport_rect() must be called *outside* the ctx.input() closure —
+                    // both acquire egui's internal Context lock and nesting them deadlocks.
+                    let vp = ctx.viewport_rect();
+                    let close_center = egui::Pos2::new(vp.max.x - 14.0, vp.min.y + 12.0);
+                    if ctx.input(|i| {
+                        let pressed = i.pointer.button_pressed(egui::PointerButton::Primary);
+                        let on_close = i.pointer.interact_pos().map_or(false, |p| {
+                            (p.x - close_center.x).hypot(p.y - close_center.y) < 12.0
+                        });
+                        pressed && !on_close
+                    }) {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                    }
+                },
+            );
+
+            if close_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                self.settings.graph.phase_plot_open = false;
+                let _ = self.settings.save_to_config_path();
+            }
+        }
     }
 }
 
@@ -570,8 +630,14 @@ fn draw_telemetry(
     ui.spacing_mut().item_spacing.x = 0.0;
     ui.horizontal(|ui| {
         // ── Trace graph ──────────────────────────────────────────────────────
-        crate::renderer::TraceGraph::new(buffer.map(|v| &**v), &settings.graph, colors, opacity)
-            .show(ui, egui::vec2(graph_w, graph_h));
+        crate::renderer::TraceGraph::new(
+            buffer.map(|v| &**v),
+            &settings.graph,
+            colors,
+            opacity,
+            max_steering_angle,
+        )
+        .show(ui, egui::vec2(graph_w, graph_h));
 
         // Gap between graph and bars
         ui.allocate_exact_size(egui::vec2(gap, available.height()), egui::Sense::hover());
@@ -583,10 +649,14 @@ fn draw_telemetry(
         );
         let p = ui.painter();
 
-        let brake_color = if abs_on && settings.graph.show_abs {
-            colors.abs_active
-        } else {
-            colors.brake
+        let is_braking = brake > 0.01;
+        let is_turning = current_steering.abs()
+            > settings.graph.trail_brake_threshold * max_steering_angle;
+        let brake_color = match (is_braking, abs_on && settings.graph.show_abs, is_turning) {
+            (true, true, true) if settings.graph.show_abs_cornering => colors.abs_cornering,
+            (true, true, _)                                         => colors.abs_active,
+            (true, false, true) if settings.graph.show_trail_brake  => colors.trail_brake,
+            _                                                       => colors.brake,
         };
 
         let specs: &[(f32, egui::Color32)] = &[
@@ -908,6 +978,40 @@ fn draw_config(
         &mut settings.colors.clutch,
     );
 
+    // ── Trail braking ─────────────────────────────────────────────────────────
+    section_header(ui, "TRAIL BRAKING");
+    if settings.graph.show_brake {
+        slider_row(
+            ui,
+            "Steer threshold",
+            &mut settings.graph.trail_brake_threshold,
+            0.01..=0.30,
+            "",
+        );
+        trail_color_section(
+            ui,
+            "TRAIL BRAKING",
+            "Braking while turning, before ABS",
+            &mut settings.graph.show_trail_brake,
+            &mut settings.colors.trail_brake,
+        );
+        trail_color_section(
+            ui,
+            "ABS WHILE TURNING",
+            "ABS activated mid-corner — indicates over-braking",
+            &mut settings.graph.show_abs_cornering,
+            &mut settings.colors.abs_cornering,
+        );
+    }
+    let phase_label = if settings.graph.phase_plot_open {
+        "Hide phase plot"
+    } else {
+        "Show phase plot"
+    };
+    if ui.add(styled_button(phase_label)).clicked() {
+        settings.graph.phase_plot_open = !settings.graph.phase_plot_open;
+    }
+
     // ── Logs ─────────────────────────────────────────────────────────────────
     section_header(ui, "LOGS");
     if ui.add(styled_button("Open log folder")).clicked() {
@@ -992,6 +1096,54 @@ fn trace_section(ui: &mut egui::Ui, label: &str, enabled: &mut bool, hex: &mut S
         }
     });
     ui.add_space(2.0);
+    ui.horizontal(|ui| {
+        ui.checkbox(
+            enabled,
+            egui::RichText::new("Enabled").size(11.0).color(LABEL_MID),
+        );
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let mut color = AppSettings::parse_color(hex);
+            if color_edit_button_srgba(ui, &mut color, Alpha::Opaque).changed() {
+                *hex = format!("#{:02X}{:02X}{:02X}", color.r(), color.g(), color.b());
+            }
+        });
+    });
+}
+
+/// Like `trace_section` but with a description line explaining the color's meaning.
+fn trail_color_section(
+    ui: &mut egui::Ui,
+    label: &str,
+    description: &str,
+    enabled: &mut bool,
+    hex: &mut String,
+) {
+    ui.add_space(4.0);
+    // Sub-section header with separator line — same style as trace_section
+    ui.horizontal(|ui| {
+        let label_color = if *enabled { LABEL_MID } else { LABEL_DIM };
+        ui.label(
+            egui::RichText::new(label)
+                .size(9.0)
+                .monospace()
+                .color(label_color),
+        );
+        let y = ui.next_widget_position().y + 5.0;
+        let x0 = ui.next_widget_position().x + 4.0;
+        let x1 = ui.max_rect().max.x;
+        if x1 > x0 {
+            ui.painter().line_segment(
+                [egui::pos2(x0, y), egui::pos2(x1, y)],
+                egui::Stroke::new(0.5, BORDER),
+            );
+        }
+    });
+    ui.add_space(2.0);
+    ui.label(
+        egui::RichText::new(description)
+            .size(10.0)
+            .color(LABEL_DIM),
+    );
     ui.horizontal(|ui| {
         ui.checkbox(
             enabled,

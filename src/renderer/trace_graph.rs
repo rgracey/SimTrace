@@ -9,12 +9,21 @@ use egui::{Color32, Pos2, Rect, Response, Stroke, Ui, Vec2};
 use crate::config::{GraphSettings, ParsedColors};
 use crate::core::{TelemetryBuffer, TelemetryPoint};
 
+#[derive(Clone, Copy, PartialEq)]
+enum BrakeState {
+    Normal,
+    TrailBraking,
+    AbsStraight,
+    AbsCornering,
+}
+
 /// Renders a scrolling trace of pedal inputs against time.
 pub struct TraceGraph<'a> {
     buffer: Option<&'a TelemetryBuffer>,
     settings: &'a GraphSettings,
     colors: &'a ParsedColors,
     opacity: f32,
+    max_steering_angle: f32,
 }
 
 impl<'a> TraceGraph<'a> {
@@ -23,12 +32,14 @@ impl<'a> TraceGraph<'a> {
         settings: &'a GraphSettings,
         colors: &'a ParsedColors,
         opacity: f32,
+        max_steering_angle: f32,
     ) -> Self {
         Self {
             buffer,
             settings,
             colors,
             opacity,
+            max_steering_angle,
         }
     }
 
@@ -132,7 +143,7 @@ impl<'a> TraceGraph<'a> {
         }
     }
 
-    /// Draw the brake trace, colouring ABS-active segments differently.
+    /// Draw the brake trace, colouring segments by trail braking / ABS state.
     fn draw_brake_trace(
         &self,
         painter: &egui::Painter,
@@ -145,43 +156,86 @@ impl<'a> TraceGraph<'a> {
             return;
         }
 
-        let mut segments: Vec<(Vec<Pos2>, bool)> = Vec::new();
+        let steering_threshold = self.settings.trail_brake_threshold * self.max_steering_angle;
+
+        let mut segments: Vec<(Vec<Pos2>, BrakeState)> = Vec::new();
         let mut current_pts: Vec<Pos2> = Vec::new();
-        let mut current_abs: Option<bool> = None;
+        let mut current_state: Option<BrakeState> = None;
 
         for point in points {
             let pos = Pos2::new(
                 self.x_position(rect, point, now, window_dur),
                 self.y_position(rect, point.telemetry.brake),
             );
-            if Some(point.abs_active) != current_abs {
+
+            let is_braking = point.telemetry.brake > 0.01;
+            let is_turning = point.telemetry.steering_angle.abs() > steering_threshold;
+            let state = if !is_braking {
+                BrakeState::Normal
+            } else {
+                match (point.abs_active, is_turning) {
+                    (false, false) => BrakeState::Normal,
+                    (false, true) => {
+                        if self.settings.show_trail_brake {
+                            BrakeState::TrailBraking
+                        } else {
+                            BrakeState::Normal
+                        }
+                    }
+                    (true, false) => BrakeState::AbsStraight,
+                    (true, true) => {
+                        if self.settings.show_abs_cornering {
+                            BrakeState::AbsCornering
+                        } else if self.settings.show_abs {
+                            BrakeState::AbsStraight
+                        } else {
+                            BrakeState::Normal
+                        }
+                    }
+                }
+            };
+
+            if Some(state) != current_state {
                 if !current_pts.is_empty() {
                     // Include the transition point in the outgoing segment so it
-                    // connects seamlessly to the next segment (no gap at ABS transitions).
+                    // connects seamlessly to the next segment (no gap at state transitions).
                     current_pts.push(pos);
                     segments.push((
                         std::mem::take(&mut current_pts),
-                        current_abs.unwrap_or(false),
+                        current_state.unwrap_or(BrakeState::Normal),
                     ));
                 }
                 current_pts.push(pos);
-                current_abs = Some(point.abs_active);
+                current_state = Some(state);
             } else {
                 current_pts.push(pos);
             }
         }
         if !current_pts.is_empty() {
-            segments.push((current_pts, current_abs.unwrap_or(false)));
+            segments.push((current_pts, current_state.unwrap_or(BrakeState::Normal)));
         }
 
-        for (seg_pts, abs_active) in segments {
+        for (seg_pts, state) in segments {
             if seg_pts.len() < 2 {
                 continue;
             }
-            let color = if abs_active && self.settings.show_abs {
-                self.colors.abs_active
-            } else {
-                self.colors.brake
+            let color = match state {
+                BrakeState::Normal => self.colors.brake,
+                BrakeState::TrailBraking => self.colors.trail_brake,
+                BrakeState::AbsStraight => {
+                    if self.settings.show_abs {
+                        self.colors.abs_active
+                    } else {
+                        self.colors.brake
+                    }
+                }
+                BrakeState::AbsCornering => {
+                    if self.settings.show_abs {
+                        self.colors.abs_cornering
+                    } else {
+                        self.colors.trail_brake
+                    }
+                }
             };
             painter.add(egui::Shape::line(
                 seg_pts,
@@ -195,18 +249,35 @@ impl<'a> TraceGraph<'a> {
         let bg = self
             .apply_opacity(self.colors.background)
             .linear_multiply(0.8);
-        let legend_rect =
-            Rect::from_min_size(rect.min + Vec2::new(10.0, 10.0), Vec2::new(120.0, 90.0));
+
+        let mut entries: Vec<(&str, Color32)> = Vec::new();
+        if self.settings.show_throttle {
+            entries.push(("Throttle", self.colors.throttle));
+        }
+        if self.settings.show_brake {
+            entries.push(("Brake", self.colors.brake));
+            if self.settings.show_trail_brake {
+                entries.push(("Trail brake", self.colors.trail_brake));
+            }
+            if self.settings.show_abs {
+                entries.push(("ABS", self.colors.abs_active));
+                if self.settings.show_abs && self.settings.show_abs_cornering {
+                    entries.push(("ABS+Turn", self.colors.abs_cornering));
+                }
+            }
+        }
+        if self.settings.show_clutch {
+            entries.push(("Clutch", self.colors.clutch));
+        }
+
+        let legend_rect = Rect::from_min_size(
+            rect.min + Vec2::new(10.0, 10.0),
+            Vec2::new(130.0, 10.0 + entries.len() as f32 * 18.0),
+        );
         painter.rect_filled(legend_rect, 4.0, bg);
 
-        let entries = [
-            ("Throttle", self.colors.throttle),
-            ("Brake", self.colors.brake),
-            ("ABS", self.colors.abs_active),
-            ("Clutch", self.colors.clutch),
-        ];
         for (i, (label, color)) in entries.iter().enumerate() {
-            let y = legend_rect.min.y + 15.0 + i as f32 * 20.0;
+            let y = legend_rect.min.y + 15.0 + i as f32 * 18.0;
             painter.line_segment(
                 [
                     Pos2::new(legend_rect.min.x + 5.0, y),
