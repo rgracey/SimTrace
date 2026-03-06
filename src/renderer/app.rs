@@ -15,6 +15,9 @@ const POLL_RATE_HZ: u64 = 60;
 /// Minimum overlay dimensions — keeps the layout from collapsing.
 const MIN_WIDTH: f32 = 300.0;
 const MIN_HEIGHT: f32 = 130.0;
+/// Track position strip height and gap below the main content.
+const STRIP_H: f32 = 10.0;
+const STRIP_GAP: f32 = 3.0;
 
 // ── Background poller ─────────────────────────────────────────────────────────
 
@@ -612,15 +615,23 @@ fn draw_telemetry(
     let bar_gap = 4.0_f32;
     let gap = 8.0_f32;
 
+    // Reserve space for track strip at bottom when enabled.
+    let strip_total = if settings.graph.show_track_strip {
+        STRIP_H + STRIP_GAP
+    } else {
+        0.0
+    };
+    let content_h = available.height() - strip_total;
+
     // Wheel column: height-derived but capped so it never crowds the graph
     let wheel_col_w = ((cap_r - 2.0) * 2.0).min(available.width() * 0.30);
 
     // Bar width scales with height so bars stay proportional when the widget is short
-    let bar_w = (available.height() * 0.28).clamp(12.0, 22.0);
+    let bar_w = (content_h * 0.28).clamp(12.0, 22.0);
     let bars_col_w = bar_w * 3.0 + bar_gap * 2.0;
 
     let graph_w = (available.width() - bars_col_w - wheel_col_w - gap * 2.0).max(40.0);
-    let graph_h = available.height();
+    let graph_h = content_h;
 
     // No data arriving? Show overlay on graph area.
     let is_waiting = latest
@@ -635,11 +646,11 @@ fn draw_telemetry(
             .show(ui, egui::vec2(graph_w, graph_h));
 
         // Gap between graph and bars
-        ui.allocate_exact_size(egui::vec2(gap, available.height()), egui::Sense::hover());
+        ui.allocate_exact_size(egui::vec2(gap, content_h), egui::Sense::hover());
 
         // ── Pedal bars ───────────────────────────────────────────────────────
         let (bars_rect, _) = ui.allocate_exact_size(
-            egui::vec2(bars_col_w, available.height()),
+            egui::vec2(bars_col_w, content_h),
             egui::Sense::hover(),
         );
         let p = ui.painter();
@@ -722,11 +733,11 @@ fn draw_telemetry(
         }
 
         // Gap between bars and steering wheel
-        ui.allocate_exact_size(egui::vec2(gap, available.height()), egui::Sense::hover());
+        ui.allocate_exact_size(egui::vec2(gap, content_h), egui::Sense::hover());
 
         // ── Steering wheel ──────────────────────────────────────────────────
         let (wheel_rect, _) = ui.allocate_exact_size(
-            egui::vec2(wheel_col_w, available.height()),
+            egui::vec2(wheel_col_w, content_h),
             egui::Sense::hover(),
         );
         // Center the wheel in the cap — vertically centred, horizontally at cap centre
@@ -796,6 +807,27 @@ fn draw_telemetry(
         );
     });
 
+    // ── Track position strip ─────────────────────────────────────────────────
+    if settings.graph.show_track_strip {
+        let current_track_pos = latest
+            .as_ref()
+            .map(|p| p.telemetry.track_position)
+            .unwrap_or(0.0);
+        let strip_rect = egui::Rect::from_min_size(
+            egui::pos2(available.min.x, available.max.y - STRIP_H),
+            egui::vec2(available.width(), STRIP_H),
+        );
+        draw_track_strip(
+            ui.painter(),
+            strip_rect,
+            buffer,
+            current_track_pos,
+            &settings.graph,
+            colors,
+            a,
+        );
+    }
+
     if is_waiting {
         ui.painter().text(
             graph_rect.center(),
@@ -805,6 +837,78 @@ fn draw_telemetry(
             with_alpha(LABEL_DIM, a),
         );
     }
+}
+
+// ── Track position strip ──────────────────────────────────────────────────────
+
+#[allow(clippy::too_many_arguments)]
+fn draw_track_strip(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    buffer: Option<&Arc<crate::core::TelemetryBuffer>>,
+    current_pos: f32,
+    settings: &crate::config::GraphSettings,
+    colors: &ParsedColors,
+    a: u8,
+) {
+    // Background
+    painter.rect_filled(
+        rect,
+        2.0,
+        egui::Color32::from_rgba_unmultiplied(8, 8, 8, (a as f32 * 0.9) as u8),
+    );
+    painter.rect_stroke(
+        rect,
+        2.0,
+        egui::Stroke::new(0.5, with_alpha(BORDER, a)),
+        egui::StrokeKind::Middle,
+    );
+
+    // Brake zone blips from recent history.
+    if let Some(buf) = buffer {
+        let points = buf.get_points();
+        let now = std::time::Instant::now();
+        let window_secs = settings.window_seconds as f32;
+        let window_dur = std::time::Duration::from_secs_f64(settings.window_seconds);
+
+        for pt in points
+            .iter()
+            .filter(|p| now.duration_since(p.captured_at) <= window_dur)
+        {
+            if pt.telemetry.brake < 0.05 {
+                continue;
+            }
+            let age = now.duration_since(pt.captured_at).as_secs_f32();
+            let freshness = (1.0 - age / window_secs).clamp(0.0, 1.0);
+            let intensity = pt.telemetry.brake * freshness;
+            if intensity < 0.02 {
+                continue;
+            }
+
+            let x = rect.min.x + pt.telemetry.track_position * rect.width();
+            let color = if pt.abs_active && settings.show_abs {
+                colors.abs_active
+            } else {
+                colors.brake
+            };
+            let [r, g, b, ca] = color.to_array();
+            let alpha = ((ca as f32) * (a as f32 / 255.0) * intensity).min(255.0) as u8;
+            painter.line_segment(
+                [
+                    egui::pos2(x, rect.min.y + 1.5),
+                    egui::pos2(x, rect.max.y - 1.5),
+                ],
+                egui::Stroke::new(1.5, egui::Color32::from_rgba_unmultiplied(r, g, b, alpha)),
+            );
+        }
+    }
+
+    // Current position cursor — bright white vertical line.
+    let cx = rect.min.x + current_pos.clamp(0.0, 1.0) * rect.width();
+    painter.line_segment(
+        [egui::pos2(cx, rect.min.y), egui::pos2(cx, rect.max.y)],
+        egui::Stroke::new(2.0, with_alpha(egui::Color32::WHITE, a)),
+    );
 }
 
 // ── Config panel ─────────────────────────────────────────────────────────────
@@ -894,6 +998,7 @@ fn draw_config(
     // ── Display ──────────────────────────────────────────────────────────────
     section_header(ui, "DISPLAY");
     ui.checkbox(&mut settings.graph.show_legend, "Show legend");
+    ui.checkbox(&mut settings.graph.show_track_strip, "Show track strip");
     ui.horizontal(|ui| {
         ui.label(
             egui::RichText::new("Speed unit")

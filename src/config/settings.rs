@@ -46,6 +46,8 @@ pub struct GraphSettings {
     pub trail_brake_threshold: f32,
     #[serde(default)]
     pub phase_plot_open: bool,
+    #[serde(default = "default_true")]
+    pub show_track_strip: bool,
 }
 
 fn default_true() -> bool {
@@ -150,6 +152,7 @@ impl Default for AppSettings {
                 show_abs_cornering: true,
                 trail_brake_threshold: 5.0,
                 phase_plot_open: false,
+                show_track_strip: true,
             },
             colors: ColorScheme {
                 throttle: "#00FF00".to_string(),
