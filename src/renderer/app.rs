@@ -200,6 +200,8 @@ impl eframe::App for SimTraceApp {
         } else {
             None
         };
+        // Clone the reference lap so the closure can read it without borrowing self.
+        let reference_lap = self.lap_store.reference_lap.clone();
 
         ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(
             MIN_WIDTH, MIN_HEIGHT,
@@ -447,6 +449,7 @@ impl eframe::App for SimTraceApp {
                                 self.max_steering_angle,
                                 a,
                                 cap_r,
+                                reference_lap.as_deref(),
                             );
                         } else {
                             let font_size = (content_rect.height() * 0.28).clamp(14.0, 42.0);
@@ -667,6 +670,7 @@ fn draw_telemetry(
     max_steering_angle: f32,
     a: u8,
     cap_r: f32,
+    reference_lap: Option<&[crate::core::lap_store::LapPoint]>,
 ) {
     let opacity = settings.overlay.opacity;
     let available = ui.available_rect_before_wrap();
@@ -899,6 +903,7 @@ fn draw_telemetry(
             &settings.graph,
             colors,
             a,
+            reference_lap,
         );
     }
 
@@ -924,6 +929,7 @@ fn draw_track_strip(
     settings: &crate::config::GraphSettings,
     colors: &ParsedColors,
     a: u8,
+    reference_lap: Option<&[crate::core::lap_store::LapPoint]>,
 ) {
     // Background
     painter.rect_filled(
@@ -938,42 +944,108 @@ fn draw_track_strip(
         egui::StrokeKind::Middle,
     );
 
-    // Brake zone blips from recent history.
+    // ── Reference lap ghost ─────────────────────────────────────────────────
+    // Bin reference points by pixel column and take the max brake/throttle
+    // per column, which avoids aliasing when many points map to the same pixel.
+    if let Some(ref_lap) = reference_lap {
+        let w = rect.width().max(1.0) as usize;
+        let mut brake_bins = vec![0.0_f32; w];
+        let mut throttle_bins = vec![0.0_f32; w];
+
+        for pt in ref_lap {
+            let bin = ((pt.track_position.clamp(0.0, 1.0) * w as f32) as usize).min(w - 1);
+            brake_bins[bin] = brake_bins[bin].max(pt.brake);
+            throttle_bins[bin] = throttle_bins[bin].max(pt.throttle);
+        }
+
+        let inner_h = rect.height() - 2.0;
+        let ghost_opacity = a as f32 * 0.38; // dim — reference sits behind live data
+
+        let [br, bg, bb, _] = colors.brake.to_array();
+        let [tr, tg, tb, _] = colors.throttle.to_array();
+
+        for col in 0..w {
+            let x = rect.min.x + col as f32 + 0.5;
+
+            // Brake: from bottom up
+            if brake_bins[col] > 0.02 {
+                let h = (brake_bins[col] * inner_h).max(1.0);
+                let alpha = (ghost_opacity * brake_bins[col]).min(255.0) as u8;
+                painter.line_segment(
+                    [
+                        egui::pos2(x, rect.max.y - 1.0),
+                        egui::pos2(x, rect.max.y - 1.0 - h),
+                    ],
+                    egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(br, bg, bb, alpha)),
+                );
+            }
+
+            // Throttle: from top down
+            if throttle_bins[col] > 0.02 {
+                let h = (throttle_bins[col] * inner_h).max(1.0);
+                let alpha = (ghost_opacity * throttle_bins[col]).min(255.0) as u8;
+                painter.line_segment(
+                    [
+                        egui::pos2(x, rect.min.y + 1.0),
+                        egui::pos2(x, rect.min.y + 1.0 + h),
+                    ],
+                    egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(tr, tg, tb, alpha)),
+                );
+            }
+        }
+    }
+
+    // Live brake and throttle blips from recent history.
     if let Some(buf) = buffer {
         let points = buf.get_points();
         let now = std::time::Instant::now();
         let window_secs = settings.window_seconds as f32;
         let window_dur = std::time::Duration::from_secs_f64(settings.window_seconds);
+        let inner_h = rect.height() - 2.0;
 
         for pt in points
             .iter()
             .filter(|p| now.duration_since(p.captured_at) <= window_dur)
         {
-            if pt.telemetry.brake < 0.05 {
-                continue;
-            }
             let age = now.duration_since(pt.captured_at).as_secs_f32();
             let freshness = (1.0 - age / window_secs).clamp(0.0, 1.0);
-            let intensity = pt.telemetry.brake * freshness;
-            if intensity < 0.02 {
-                continue;
+            let x = rect.min.x + pt.telemetry.track_position * rect.width();
+
+            // Brake: from bottom up
+            let brake_intensity = pt.telemetry.brake * freshness;
+            if brake_intensity > 0.02 {
+                let color = if pt.abs_active && settings.show_abs {
+                    colors.abs_active
+                } else {
+                    colors.brake
+                };
+                let [r, g, b, ca] = color.to_array();
+                let alpha = ((ca as f32) * (a as f32 / 255.0) * brake_intensity).min(255.0) as u8;
+                let h = (pt.telemetry.brake * inner_h).max(1.0);
+                painter.line_segment(
+                    [
+                        egui::pos2(x, rect.max.y - 1.0),
+                        egui::pos2(x, rect.max.y - 1.0 - h),
+                    ],
+                    egui::Stroke::new(1.5, egui::Color32::from_rgba_unmultiplied(r, g, b, alpha)),
+                );
             }
 
-            let x = rect.min.x + pt.telemetry.track_position * rect.width();
-            let color = if pt.abs_active && settings.show_abs {
-                colors.abs_active
-            } else {
-                colors.brake
-            };
-            let [r, g, b, ca] = color.to_array();
-            let alpha = ((ca as f32) * (a as f32 / 255.0) * intensity).min(255.0) as u8;
-            painter.line_segment(
-                [
-                    egui::pos2(x, rect.min.y + 1.5),
-                    egui::pos2(x, rect.max.y - 1.5),
-                ],
-                egui::Stroke::new(1.5, egui::Color32::from_rgba_unmultiplied(r, g, b, alpha)),
-            );
+            // Throttle: from top down
+            let throttle_intensity = pt.telemetry.throttle * freshness;
+            if throttle_intensity > 0.02 {
+                let [r, g, b, ca] = colors.throttle.to_array();
+                let alpha =
+                    ((ca as f32) * (a as f32 / 255.0) * throttle_intensity).min(255.0) as u8;
+                let h = (pt.telemetry.throttle * inner_h).max(1.0);
+                painter.line_segment(
+                    [
+                        egui::pos2(x, rect.min.y + 1.0),
+                        egui::pos2(x, rect.min.y + 1.0 + h),
+                    ],
+                    egui::Stroke::new(1.5, egui::Color32::from_rgba_unmultiplied(r, g, b, alpha)),
+                );
+            }
         }
     }
 
