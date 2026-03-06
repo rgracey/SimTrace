@@ -59,6 +59,8 @@ pub struct SimTraceApp {
     save_toast: Option<std::time::Instant>,
     /// Colors pre-parsed from `settings.colors`; re-derived when config changes them.
     parsed_colors: ParsedColors,
+    /// Lap boundary detection and per-lap telemetry for comparison.
+    lap_store: crate::core::LapStore,
 }
 
 impl SimTraceApp {
@@ -90,6 +92,7 @@ impl SimTraceApp {
             active_plugin,
             save_toast: None,
             parsed_colors,
+            lap_store: crate::core::LapStore::new(),
         }
     }
 
@@ -138,6 +141,7 @@ impl SimTraceApp {
             .map(|p| p.get_config().max_steering_angle)
             .unwrap_or(450.0);
         self.active_plugin = plugin;
+        self.lap_store.clear();
     }
 }
 
@@ -187,6 +191,7 @@ impl eframe::App for SimTraceApp {
         if self.running {
             if let Some(pt) = self.buffer.latest() {
                 self.current_steering = pt.telemetry.steering_angle;
+                self.lap_store.push(&pt);
             }
         }
         // Clone the Arc so the closure below can take &mut self freely.
@@ -516,6 +521,7 @@ impl eframe::App for SimTraceApp {
                             &mut self.running,
                             &mut self.save_toast,
                             buffer.as_ref(),
+                            &mut self.lap_store,
                         );
                     });
                     // Re-derive parsed colors in case the color pickers changed them.
@@ -582,6 +588,67 @@ impl eframe::App for SimTraceApp {
 
             if close_flag.load(std::sync::atomic::Ordering::Relaxed) {
                 self.settings.graph.phase_plot_open = false;
+                let _ = self.settings.save_to_config_path();
+            }
+        }
+
+        // ── Lap comparison viewport ───────────────────────────────────────────
+        if self.settings.graph.lap_comparison_open {
+            let reference = self.lap_store.reference_lap.clone();
+            let current = self.lap_store.current_lap().to_vec();
+            let current_track_pos = self
+                .lap_store
+                .current_lap()
+                .last()
+                .map(|p| p.track_position)
+                .unwrap_or(0.0);
+            let colors = self.parsed_colors.clone();
+            let opacity = self.settings.overlay.opacity;
+
+            let close_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let close_arc = close_flag.clone();
+
+            ctx.show_viewport_immediate(
+                egui::ViewportId::from_hash_of("lap_comparison"),
+                egui::ViewportBuilder::default()
+                    .with_title("Lap Comparison")
+                    .with_inner_size([380.0, 260.0])
+                    .with_transparent(true)
+                    .with_decorations(false)
+                    .with_window_level(egui::WindowLevel::AlwaysOnTop),
+                |ctx, _class| {
+                    egui::CentralPanel::default()
+                        .frame(egui::Frame::NONE)
+                        .show(ctx, |ui| {
+                            let size = ui.available_size();
+                            let closed = crate::renderer::LapComparison::new(
+                                reference.as_ref(),
+                                &current,
+                                current_track_pos,
+                                &colors,
+                                opacity,
+                            )
+                            .show(ui, size);
+                            if closed {
+                                close_arc.store(true, std::sync::atomic::Ordering::Relaxed);
+                            }
+                        });
+                    let vp = ctx.viewport_rect();
+                    let close_center = egui::Pos2::new(vp.max.x - 14.0, vp.min.y + 12.0);
+                    if ctx.input(|i| {
+                        let pressed = i.pointer.button_pressed(egui::PointerButton::Primary);
+                        let on_close = i.pointer.interact_pos().is_some_and(|p| {
+                            (p.x - close_center.x).hypot(p.y - close_center.y) < 12.0
+                        });
+                        pressed && !on_close
+                    }) {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                    }
+                },
+            );
+
+            if close_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                self.settings.graph.lap_comparison_open = false;
                 let _ = self.settings.save_to_config_path();
             }
         }
@@ -926,6 +993,7 @@ fn draw_config(
     running: &mut bool,
     save_toast: &mut Option<std::time::Instant>,
     buffer: Option<&Arc<crate::core::TelemetryBuffer>>,
+    lap_store: &mut crate::core::LapStore,
 ) {
     // Ensure all widgets (sliders, dropdowns, colour pickers) use dark styling
     // regardless of the OS theme reported by the platform layer.
@@ -1131,6 +1199,35 @@ fn draw_config(
     if ui.add(styled_button(phase_label)).clicked() {
         settings.graph.phase_plot_open = !settings.graph.phase_plot_open;
     }
+
+    // ── Lap comparison ────────────────────────────────────────────────────────
+    section_header(ui, "LAP COMPARISON");
+    let cmp_label = if settings.graph.lap_comparison_open {
+        "Hide comparison"
+    } else {
+        "Show comparison"
+    };
+    if ui.add(styled_button(cmp_label)).clicked() {
+        settings.graph.lap_comparison_open = !settings.graph.lap_comparison_open;
+    }
+    ui.add_space(4.0);
+    let ref_status = match &lap_store.reference_lap {
+        Some(pts) => format!("Ref: {} pts", pts.len()),
+        None => "No reference lap".to_string(),
+    };
+    ui.label(
+        egui::RichText::new(ref_status)
+            .size(10.0)
+            .color(LABEL_DIM),
+    );
+    ui.horizontal(|ui| {
+        if ui.add(styled_button("Set Ref")).clicked() {
+            lap_store.set_current_as_reference();
+        }
+        if ui.add(styled_button("Clear")).clicked() {
+            lap_store.clear_reference();
+        }
+    });
 
     // ── Logs ─────────────────────────────────────────────────────────────────
     section_header(ui, "LOGS");

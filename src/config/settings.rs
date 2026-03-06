@@ -48,6 +48,8 @@ pub struct GraphSettings {
     pub phase_plot_open: bool,
     #[serde(default = "default_true")]
     pub show_track_strip: bool,
+    #[serde(default)]
+    pub lap_comparison_open: bool,
     pub show_tc: bool,
     pub show_speed: bool,
 }
@@ -171,6 +173,7 @@ impl Default for AppSettings {
                 trail_brake_threshold: 5.0,
                 phase_plot_open: false,
                 show_track_strip: true,
+                lap_comparison_open: false,
                 show_tc: true,
                 show_speed: true,
             },
