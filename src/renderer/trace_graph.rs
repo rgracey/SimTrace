@@ -60,7 +60,39 @@ impl<'a> TraceGraph<'a> {
                 .collect();
 
             if !points.is_empty() {
-                // Draw order: clutch → throttle → brake/ABS (top, always visible)
+                // Draw order: speed → clutch → throttle → brake/ABS (top, always visible)
+                if self.settings.show_speed {
+                    let max_speed = points
+                        .iter()
+                        .map(|p| p.telemetry.speed)
+                        .fold(0.0_f32, f32::max);
+                    if max_speed > 0.5 {
+                        self.draw_trace(
+                            &painter,
+                            rect,
+                            &points,
+                            now,
+                            window_dur,
+                            |p| p.telemetry.speed / max_speed,
+                            self.colors.speed,
+                        );
+                        // Scale label: top-right, shows what the top of the axis equals
+                        let speed_val = if self.settings.speed_mph {
+                            max_speed * 2.237
+                        } else {
+                            max_speed * 3.6
+                        };
+                        let unit = if self.settings.speed_mph { "mph" } else { "kph" };
+                        let label_color = self.apply_opacity(self.colors.speed);
+                        painter.text(
+                            Pos2::new(rect.max.x - 4.0, rect.min.y + 4.0),
+                            egui::Align2::RIGHT_TOP,
+                            format!("{:.0} {}", speed_val, unit),
+                            egui::FontId::proportional(9.0),
+                            label_color,
+                        );
+                    }
+                }
                 if self.settings.show_clutch {
                     self.draw_trace(
                         &painter,
@@ -248,6 +280,9 @@ impl<'a> TraceGraph<'a> {
             .linear_multiply(0.8);
 
         let mut entries: Vec<(&str, Color32)> = Vec::new();
+        if self.settings.show_speed {
+            entries.push(("Speed", self.colors.speed));
+        }
         if self.settings.show_throttle {
             entries.push(("Throttle", self.colors.throttle));
         }
