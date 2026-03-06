@@ -1091,6 +1091,12 @@ fn draw_config(
         &mut settings.graph.show_clutch,
         &mut settings.colors.clutch,
     );
+    trace_section(
+        ui,
+        "SPEED",
+        &mut settings.graph.show_speed,
+        &mut settings.colors.speed,
+    );
 
     // ── Trail braking ─────────────────────────────────────────────────────────
     section_header(ui, "TRAIL BRAKING");

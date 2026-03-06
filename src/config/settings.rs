@@ -49,6 +49,7 @@ pub struct GraphSettings {
     #[serde(default = "default_true")]
     pub show_track_strip: bool,
     pub show_tc: bool,
+    pub show_speed: bool,
 }
 
 fn default_true() -> bool {
@@ -76,6 +77,8 @@ pub struct ColorScheme {
     pub abs_cornering: String,
     #[serde(default = "default_tc_active_color")]
     pub tc_active: String,
+    #[serde(default = "default_speed_color")]
+    pub speed: String,
 }
 
 fn default_clutch_color() -> String {
@@ -94,6 +97,10 @@ fn default_tc_active_color() -> String {
     "#FFCC00".to_string()
 }
 
+fn default_speed_color() -> String {
+    "#E8C800".to_string()
+}
+
 /// Pre-parsed version of [`ColorScheme`] holding `Color32` values ready for rendering.
 ///
 /// Derive once per settings change via [`ParsedColors::from_scheme`] instead of
@@ -110,6 +117,7 @@ pub struct ParsedColors {
     pub trail_brake: egui::Color32,
     pub abs_cornering: egui::Color32,
     pub tc_active: egui::Color32,
+    pub speed: egui::Color32,
 }
 
 impl ParsedColors {
@@ -125,6 +133,7 @@ impl ParsedColors {
             trail_brake: AppSettings::parse_color(&scheme.trail_brake),
             abs_cornering: AppSettings::parse_color(&scheme.abs_cornering),
             tc_active: AppSettings::parse_color(&scheme.tc_active),
+            speed: AppSettings::parse_color(&scheme.speed),
         }
     }
 }
@@ -163,6 +172,7 @@ impl Default for AppSettings {
                 phase_plot_open: false,
                 show_track_strip: true,
                 show_tc: true,
+                show_speed: true,
             },
             colors: ColorScheme {
                 throttle: "#00FF00".to_string(),
@@ -175,6 +185,7 @@ impl Default for AppSettings {
                 trail_brake: "#00BBFF".to_string(),
                 abs_cornering: "#FF44AA".to_string(),
                 tc_active: "#FFCC00".to_string(),
+                speed: "#E8C800".to_string(),
             },
             overlay: OverlaySettings {
                 width: 600.0,
