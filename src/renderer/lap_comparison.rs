@@ -83,10 +83,19 @@ impl<'a> LapComparison<'a> {
             Color32::from_rgba_unmultiplied(255, 255, 255, (110.0 * self.opacity) as u8);
         let cursor = Stroke::new(1.0, cursor_color);
         let cx = main_rect.min.x + self.current_track_pos.clamp(0.0, 1.0) * main_rect.width();
-        painter.line_segment([Pos2::new(cx, main_rect.min.y), Pos2::new(cx, main_rect.max.y)], cursor);
+        painter.line_segment(
+            [
+                Pos2::new(cx, main_rect.min.y),
+                Pos2::new(cx, main_rect.max.y),
+            ],
+            cursor,
+        );
         let dcx = delta_rect.min.x + self.current_track_pos.clamp(0.0, 1.0) * delta_rect.width();
         painter.line_segment(
-            [Pos2::new(dcx, delta_rect.min.y), Pos2::new(dcx, delta_rect.max.y)],
+            [
+                Pos2::new(dcx, delta_rect.min.y),
+                Pos2::new(dcx, delta_rect.max.y),
+            ],
             cursor,
         );
 
@@ -95,11 +104,20 @@ impl<'a> LapComparison<'a> {
         let close_rect = Rect::from_center_size(close_center, Vec2::splat(20.0));
         let close_resp = ui.interact(close_rect, ui.id().with("close"), egui::Sense::click());
         let cross_alpha = if close_resp.hovered() { 230u8 } else { 100u8 };
-        let cross = Stroke::new(1.5, Color32::from_rgba_unmultiplied(210, 210, 210, cross_alpha));
+        let cross = Stroke::new(
+            1.5,
+            Color32::from_rgba_unmultiplied(210, 210, 210, cross_alpha),
+        );
         let arm = 4.5_f32;
         let (cx, cy) = (close_center.x, close_center.y);
-        painter.line_segment([Pos2::new(cx - arm, cy - arm), Pos2::new(cx + arm, cy + arm)], cross);
-        painter.line_segment([Pos2::new(cx + arm, cy - arm), Pos2::new(cx - arm, cy + arm)], cross);
+        painter.line_segment(
+            [Pos2::new(cx - arm, cy - arm), Pos2::new(cx + arm, cy + arm)],
+            cross,
+        );
+        painter.line_segment(
+            [Pos2::new(cx + arm, cy - arm), Pos2::new(cx - arm, cy + arm)],
+            cross,
+        );
 
         close_resp.clicked()
     }
@@ -124,11 +142,17 @@ impl<'a> LapComparison<'a> {
         // Axes
         let axis = Stroke::new(1.0, self.apply_opacity(self.colors.grid));
         painter.line_segment(
-            [Pos2::new(rect.min.x, rect.max.y), Pos2::new(rect.max.x, rect.max.y)],
+            [
+                Pos2::new(rect.min.x, rect.max.y),
+                Pos2::new(rect.max.x, rect.max.y),
+            ],
             axis,
         );
         painter.line_segment(
-            [Pos2::new(rect.min.x, rect.min.y), Pos2::new(rect.min.x, rect.max.y)],
+            [
+                Pos2::new(rect.min.x, rect.min.y),
+                Pos2::new(rect.min.x, rect.max.y),
+            ],
             axis,
         );
 
@@ -168,11 +192,25 @@ impl<'a> LapComparison<'a> {
         // Reference traces (dimmed to ~28% — visible but clearly behind).
         if let Some(ref_lap) = self.reference {
             self.draw_trace(painter, rect, ref_lap, |p| p.brake, self.colors.brake, 0.28);
-            self.draw_trace(painter, rect, ref_lap, |p| p.throttle, self.colors.throttle, 0.28);
+            self.draw_trace(
+                painter,
+                rect,
+                ref_lap,
+                |p| p.throttle,
+                self.colors.throttle,
+                0.28,
+            );
         }
 
         // Current lap traces (full brightness, drawn on top).
-        self.draw_trace(painter, rect, self.current, |p| p.brake, self.colors.brake, 1.0);
+        self.draw_trace(
+            painter,
+            rect,
+            self.current,
+            |p| p.brake,
+            self.colors.brake,
+            1.0,
+        );
         self.draw_trace(
             painter,
             rect,
@@ -246,13 +284,7 @@ impl<'a> LapComparison<'a> {
                 ""
             };
             if !hint.is_empty() {
-                painter.text(
-                    rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    hint,
-                    font,
-                    dim,
-                );
+                painter.text(rect.center(), egui::Align2::CENTER_CENTER, hint, font, dim);
             }
             return;
         };
@@ -319,7 +351,10 @@ impl<'a> LapComparison<'a> {
             } else {
                 Color32::from_rgba_unmultiplied(220, 55, 55, (230.0 * self.opacity) as u8)
             };
-            painter.line_segment([Pos2::new(x0, y0), Pos2::new(x1, y1)], Stroke::new(1.5, color));
+            painter.line_segment(
+                [Pos2::new(x0, y0), Pos2::new(x1, y1)],
+                Stroke::new(1.5, color),
+            );
         }
     }
 

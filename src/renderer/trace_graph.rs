@@ -88,7 +88,11 @@ impl<'a> TraceGraph<'a> {
                         } else {
                             max_speed * 3.6
                         };
-                        let unit = if self.settings.speed_mph { "mph" } else { "kph" };
+                        let unit = if self.settings.speed_mph {
+                            "mph"
+                        } else {
+                            "kph"
+                        };
                         let label_color = self.apply_opacity(self.colors.speed);
                         painter.text(
                             Pos2::new(rect.max.x - 4.0, rect.min.y + 4.0),

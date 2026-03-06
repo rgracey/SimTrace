@@ -680,7 +680,10 @@ fn draw_telemetry(
     let brake = latest.as_ref().map(|p| p.telemetry.brake).unwrap_or(0.0);
     let clutch = latest.as_ref().map(|p| p.telemetry.clutch).unwrap_or(0.0);
     let abs_on = latest.as_ref().map(|p| p.abs_active).unwrap_or(false);
-    let tc_on = latest.as_ref().map(|p| p.telemetry.tc_active).unwrap_or(false);
+    let tc_on = latest
+        .as_ref()
+        .map(|p| p.telemetry.tc_active)
+        .unwrap_or(false);
     let gear = latest.as_ref().map(|p| p.telemetry.gear).unwrap_or(0);
     let speed_ms = latest.as_ref().map(|p| p.telemetry.speed).unwrap_or(0.0);
 
@@ -721,10 +724,8 @@ fn draw_telemetry(
         ui.allocate_exact_size(egui::vec2(gap, content_h), egui::Sense::hover());
 
         // ── Pedal bars ───────────────────────────────────────────────────────
-        let (bars_rect, _) = ui.allocate_exact_size(
-            egui::vec2(bars_col_w, content_h),
-            egui::Sense::hover(),
-        );
+        let (bars_rect, _) =
+            ui.allocate_exact_size(egui::vec2(bars_col_w, content_h), egui::Sense::hover());
         let p = ui.painter();
 
         let is_braking = brake > 0.01;
@@ -814,10 +815,8 @@ fn draw_telemetry(
         ui.allocate_exact_size(egui::vec2(gap, content_h), egui::Sense::hover());
 
         // ── Steering wheel ──────────────────────────────────────────────────
-        let (wheel_rect, _) = ui.allocate_exact_size(
-            egui::vec2(wheel_col_w, content_h),
-            egui::Sense::hover(),
-        );
+        let (wheel_rect, _) =
+            ui.allocate_exact_size(egui::vec2(wheel_col_w, content_h), egui::Sense::hover());
         // Center the wheel in the cap — vertically centred, horizontally at cap centre
         let center = wheel_rect.center();
         // Fit inside the cap with margin for stroke (thickness ≈ radius * 0.28)
@@ -976,7 +975,10 @@ fn draw_track_strip(
                         egui::pos2(x, rect.max.y - 1.0),
                         egui::pos2(x, rect.max.y - 1.0 - h),
                     ],
-                    egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(br, bg, bb, alpha)),
+                    egui::Stroke::new(
+                        1.0,
+                        egui::Color32::from_rgba_unmultiplied(br, bg, bb, alpha),
+                    ),
                 );
             }
 
@@ -989,7 +991,10 @@ fn draw_track_strip(
                         egui::pos2(x, rect.min.y + 1.0),
                         egui::pos2(x, rect.min.y + 1.0 + h),
                     ],
-                    egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(tr, tg, tb, alpha)),
+                    egui::Stroke::new(
+                        1.0,
+                        egui::Color32::from_rgba_unmultiplied(tr, tg, tb, alpha),
+                    ),
                 );
             }
         }
@@ -1287,11 +1292,7 @@ fn draw_config(
         Some(pts) => format!("Ref: {} pts", pts.len()),
         None => "No reference lap".to_string(),
     };
-    ui.label(
-        egui::RichText::new(ref_status)
-            .size(10.0)
-            .color(LABEL_DIM),
-    );
+    ui.label(egui::RichText::new(ref_status).size(10.0).color(LABEL_DIM));
     ui.horizontal(|ui| {
         if ui.add(styled_button("Set Ref")).clicked() {
             lap_store.set_current_as_reference();
