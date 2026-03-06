@@ -17,6 +17,12 @@ enum BrakeState {
     AbsCornering,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum ThrottleState {
+    Normal,
+    TcActive,
+}
+
 /// Renders a scrolling trace of pedal inputs against time.
 pub struct TraceGraph<'a> {
     buffer: Option<&'a TelemetryBuffer>,
@@ -73,15 +79,7 @@ impl<'a> TraceGraph<'a> {
                     );
                 }
                 if self.settings.show_throttle {
-                    self.draw_trace(
-                        &painter,
-                        rect,
-                        &points,
-                        now,
-                        window_dur,
-                        |p| p.telemetry.throttle,
-                        self.colors.throttle,
-                    );
+                    self.draw_throttle_trace(&painter, rect, &points, now, window_dur);
                 }
                 if self.settings.show_brake {
                     self.draw_brake_trace(&painter, rect, &points, now, window_dur);
@@ -137,6 +135,68 @@ impl<'a> TraceGraph<'a> {
             .collect();
         if line_points.len() > 1 {
             painter.add(egui::Shape::line(line_points, stroke));
+        }
+    }
+
+    /// Draw the throttle trace, colouring segments by TC state.
+    fn draw_throttle_trace(
+        &self,
+        painter: &egui::Painter,
+        rect: Rect,
+        points: &[TelemetryPoint],
+        now: std::time::Instant,
+        window_dur: std::time::Duration,
+    ) {
+        if points.len() < 2 {
+            return;
+        }
+
+        let mut segments: Vec<(Vec<Pos2>, ThrottleState)> = Vec::new();
+        let mut current_pts: Vec<Pos2> = Vec::new();
+        let mut current_state: Option<ThrottleState> = None;
+
+        for point in points {
+            let pos = Pos2::new(
+                self.x_position(rect, point, now, window_dur),
+                self.y_position(rect, point.telemetry.throttle),
+            );
+
+            let state = if point.telemetry.tc_active && self.settings.show_tc {
+                ThrottleState::TcActive
+            } else {
+                ThrottleState::Normal
+            };
+
+            if Some(state) != current_state {
+                if !current_pts.is_empty() {
+                    current_pts.push(pos);
+                    segments.push((
+                        std::mem::take(&mut current_pts),
+                        current_state.unwrap_or(ThrottleState::Normal),
+                    ));
+                }
+                current_pts.push(pos);
+                current_state = Some(state);
+            } else {
+                current_pts.push(pos);
+            }
+        }
+        if !current_pts.is_empty() {
+            segments.push((current_pts, current_state.unwrap_or(ThrottleState::Normal)));
+        }
+
+        for (seg_pts, state) in segments {
+            if seg_pts.len() < 2 {
+                continue;
+            }
+            let color = match state {
+                ThrottleState::Normal => self.colors.throttle,
+                ThrottleState::TcActive => self.colors.tc_active,
+            };
+            painter.add(egui::Shape::line(
+                seg_pts,
+                Stroke::new(self.settings.line_width, self.apply_opacity(color)),
+            ));
         }
     }
 
@@ -250,6 +310,9 @@ impl<'a> TraceGraph<'a> {
         let mut entries: Vec<(&str, Color32)> = Vec::new();
         if self.settings.show_throttle {
             entries.push(("Throttle", self.colors.throttle));
+            if self.settings.show_tc {
+                entries.push(("TC", self.colors.tc_active));
+            }
         }
         if self.settings.show_brake {
             entries.push(("Brake", self.colors.brake));

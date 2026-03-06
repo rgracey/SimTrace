@@ -606,6 +606,7 @@ fn draw_telemetry(
     let brake = latest.as_ref().map(|p| p.telemetry.brake).unwrap_or(0.0);
     let clutch = latest.as_ref().map(|p| p.telemetry.clutch).unwrap_or(0.0);
     let abs_on = latest.as_ref().map(|p| p.abs_active).unwrap_or(false);
+    let tc_on = latest.as_ref().map(|p| p.telemetry.tc_active).unwrap_or(false);
     let gear = latest.as_ref().map(|p| p.telemetry.gear).unwrap_or(0);
     let speed_ms = latest.as_ref().map(|p| p.telemetry.speed).unwrap_or(0.0);
 
@@ -653,10 +654,16 @@ fn draw_telemetry(
             _ => colors.brake,
         };
 
+        let throttle_color = if tc_on && settings.graph.show_tc {
+            colors.tc_active
+        } else {
+            colors.throttle
+        };
+
         let specs: &[(f32, egui::Color32)] = &[
             (clutch, colors.clutch),
             (brake, brake_color),
-            (throttle, colors.throttle),
+            (throttle, throttle_color),
         ];
 
         let label_h = 16.0_f32;
@@ -951,6 +958,14 @@ fn draw_config(
         &mut settings.graph.show_throttle,
         &mut settings.colors.throttle,
     );
+    ui.indent("tc_indent", |ui| {
+        trace_section(
+            ui,
+            "TC",
+            &mut settings.graph.show_tc,
+            &mut settings.colors.tc_active,
+        );
+    });
     trace_section(
         ui,
         "BRAKE",
