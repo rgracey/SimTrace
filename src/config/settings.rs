@@ -295,6 +295,19 @@ mod tests {
             show_grid = true
             show_legend = true
             line_width = 2.0
+            speed_mph = false
+            show_throttle = true
+            show_brake = true
+            show_abs = true
+            show_clutch = false
+            show_trail_brake = true
+            show_abs_cornering = true
+            trail_brake_threshold = 5.0
+            phase_plot_open = true
+            show_track_strip = false
+            lap_comparison_open = false
+            show_tc = true
+            show_speed = false
 
             [colors]
             throttle = "#00FF00"
@@ -303,6 +316,10 @@ mod tests {
             background = "#1A1A1A"
             grid = "#333333"
             text = "#FFFFFF"
+            trail_brake = "#00BBFF"
+            abs_cornering = "#FF44AA"
+            tc_active = "#FFCC00"
+            speed = "#E8C800"
 
             [overlay]
             width = 600.0
