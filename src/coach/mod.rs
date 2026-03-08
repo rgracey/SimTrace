@@ -292,8 +292,13 @@ fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sende
                         let ref_perf = reference_lap.as_ref().and_then(|r| r.corner(prev));
                         if let Some(c) = map.corner_by_id(prev).cloned() {
                             let track_len = track_map.as_ref().map(|m| m.track_length_m).unwrap_or(3000.0);
-                            let tips =
-                                analyzer.analyze_corner(&c, &corner_samples, ref_perf, track_len);
+                            // Require >=3 laps of data before coaching this corner —
+                            // early detections are noisy and produce unreliable tips.
+                            let tips = if c.confidence >= 3 {
+                                analyzer.analyze_corner(&c, &corner_samples, ref_perf, track_len)
+                            } else {
+                                vec![]
+                            };
                             // Store the highest-priority tip for anticipatory delivery before the next lap.
                             // On the first time we see a corner, also send it immediately so lap 1
                             // isn't completely silent.
