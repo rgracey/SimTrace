@@ -85,9 +85,12 @@ impl LlmRephraser {
         let tokens = self.model.str_to_token(&prompt, AddBos::Always)?;
         let n_prompt = tokens.len();
 
-        // Encode the prompt in one batch (logits only for the last token).
+        // Encode the prompt — request logits only for the last token.
         let mut batch = LlamaBatch::new(n_prompt + self.max_new_tokens, 1);
-        batch.add_sequence(&tokens, 0, false)?;
+        for (i, &token) in tokens.iter().enumerate() {
+            let is_last = i == tokens.len() - 1;
+            batch.add(token, i as i32, &[0], is_last)?;
+        }
         ctx.decode(&mut batch)?;
 
         let mut sampler = LlamaSampler::chain_simple([
@@ -97,13 +100,14 @@ impl LlmRephraser {
 
         let mut output = String::new();
         let mut n_cur = n_prompt as i32;
+        let mut decoder = encoding_rs::UTF_8.new_decoder();
 
         for _ in 0..self.max_new_tokens {
-            let token = sampler.sample(&ctx, n_cur - 1);
+            let token = sampler.sample(&ctx, -1);
             if self.model.is_eog_token(token) {
                 break;
             }
-            let piece = self.model.token_to_piece(token, false)?;
+            let piece = self.model.token_to_piece(token, &mut decoder, false, None)?;
             output.push_str(&piece);
 
             // Feed the new token back for the next step.
@@ -121,8 +125,22 @@ impl LlmRephraser {
 impl Rephraser for LlmRephraser {
     fn rephrase(&self, tip: &StructuredTip) -> String {
         match self.run_inference(&tip.fact) {
-            Ok(text) if !text.is_empty() => text,
-            _ => tip.fact.clone(),
+            Ok(text) if !text.is_empty() => {
+                tracing::debug!("LLM rephrased: {text}");
+                text
+            }
+            Ok(_) => {
+                tracing::warn!("LLM returned empty output, using original fact");
+                tip.fact.clone()
+            }
+            Err(e) => {
+                tracing::warn!("LLM inference failed: {e}");
+                tip.fact.clone()
+            }
         }
+    }
+
+    fn is_llm(&self) -> bool {
+        true
     }
 }

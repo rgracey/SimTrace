@@ -31,6 +31,7 @@ pub use rephraser::{PassthroughRephraser, Rephraser};
 #[allow(unused_imports)]
 pub use tts::{SilentSpeaker, Speaker};
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
@@ -55,6 +56,10 @@ pub struct CoachStatus {
     pub has_reference: bool,
     /// Best self-recorded lap time this session (ms), if any.
     pub best_lap_ms: Option<u32>,
+    /// Whether the LLM rephraser loaded successfully.
+    pub llm_active: bool,
+    /// Error string if LLM failed to load, or `None` when OK / not attempted.
+    pub llm_error: Option<String>,
     /// Whether a TTS speaker is active and ready.
     pub tts_active: bool,
     /// Error string if TTS failed to initialize, or `None` when OK / not attempted.
@@ -72,22 +77,34 @@ enum CoachMsg {
 
 /// Handle to the background coaching thread.
 ///
-/// Dropping this value stops the thread (the sender is dropped, causing the
-/// thread's loop to exit cleanly).
+/// Dropping this value signals the thread to stop and joins it, ensuring the
+/// LLM's Metal/CUDA backend is fully released before the caller continues.
 pub struct CoachHandle {
     rx: mpsc::Receiver<CoachMsg>,
-    _thread: std::thread::JoinHandle<()>,
+    shutdown: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for CoachHandle {
+    fn drop(&mut self) {
+        self.shutdown.store(true, Ordering::Relaxed);
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+    }
 }
 
 impl CoachHandle {
     /// Spawn the coach thread. Call this when `CoachConfig::enabled` is true.
     pub fn spawn(config: CoachConfig, buffer: Arc<TelemetryBuffer>) -> Self {
         let (tx, rx) = mpsc::channel();
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let shutdown_clone = Arc::clone(&shutdown);
         let thread = std::thread::Builder::new()
             .name("simtrace-coach".into())
-            .spawn(move || coach_loop(config, buffer, tx))
+            .spawn(move || coach_loop(config, buffer, tx, shutdown_clone))
             .expect("failed to spawn coach thread");
-        Self { rx, _thread: thread }
+        Self { rx, shutdown, thread: Some(thread) }
     }
 
     /// Drain all pending tips and status updates. Call once per UI frame.
@@ -123,37 +140,51 @@ fn build_speaker(_config: &CoachConfig) -> (Option<Box<dyn tts::Speaker>>, Optio
     (None, Some("build without --features coach-tts".into()))
 }
 
-/// Build the best available rephraser for the current configuration.
+/// Build the best available rephraser.
 ///
-/// When the `coach-llm` feature is compiled in and the user has enabled LLM
-/// rephrasing, tries to load the GGUF model.  Falls back to the passthrough
-/// rephraser on any failure (missing file, load error, feature disabled).
-fn build_rephraser(_config: &CoachConfig) -> Box<dyn Rephraser> {
+/// Returns `(rephraser, error)`.  `error` is `Some` whenever LLM was requested
+/// but could not be loaded, explaining why.
+fn build_rephraser(_config: &CoachConfig) -> (Box<dyn Rephraser>, Option<String>) {
+    if !_config.llm_enabled {
+        return (Box::new(PassthroughRephraser), None);
+    }
+
     #[cfg(feature = "coach-llm")]
-    if _config.llm_enabled {
+    {
         let model_path = _config.model_path();
-        if downloader::model_exists(&model_path) {
-            info!("Coach: loading LLM from {:?}", model_path);
-            match llm::LlmRephraser::load(&model_path) {
-                Ok(r) => {
-                    info!("Coach: LLM rephraser ready");
-                    return Box::new(r);
-                }
-                Err(e) => tracing::warn!("Coach: LLM load failed — {e}"),
+        if !downloader::model_exists(&model_path) {
+            return (
+                Box::new(PassthroughRephraser),
+                Some(format!("model not found at {}", model_path.display())),
+            );
+        }
+        info!("Coach: loading LLM from {:?}", model_path);
+        match llm::LlmRephraser::load(&model_path) {
+            Ok(r) => {
+                info!("Coach: LLM rephraser ready");
+                return (Box::new(r), None);
             }
-        } else {
-            info!("Coach: LLM enabled but model not downloaded yet");
+            Err(e) => {
+                tracing::warn!("Coach: LLM load failed — {e}");
+                return (Box::new(PassthroughRephraser), Some(e.to_string()));
+            }
         }
     }
-    Box::new(PassthroughRephraser)
+
+    #[allow(unreachable_code)]
+    (
+        Box::new(PassthroughRephraser),
+        Some("LLM support not compiled into this build".into()),
+    )
 }
 
-fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sender<CoachMsg>) {
+fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sender<CoachMsg>, shutdown: Arc<AtomicBool>) {
     let data_dir = config.data_dir();
     let tracks_dir = data_dir.join("tracks");
     let refs_dir = data_dir.join("references");
 
-    let rephraser = build_rephraser(&config);
+    let (rephraser, llm_error) = build_rephraser(&config);
+    let llm_active = rephraser.is_llm();
     let (speaker, tts_error) = build_speaker(&config);
     let tts_active = speaker.is_some();
     let mut lap_recorder = LapRecorder::new();
@@ -178,6 +209,9 @@ fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sende
     const STATUS_INTERVAL: Duration = Duration::from_secs(2);
 
     loop {
+        if shutdown.load(Ordering::Relaxed) {
+            return;
+        }
         std::thread::sleep(Duration::from_millis(50)); // 20 Hz
 
         // ── Collect new telemetry points ─────────────────────────────────────
@@ -356,6 +390,8 @@ fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sende
                 corner_count: track_map.as_ref().map(|m| m.corners.len()).unwrap_or(0),
                 has_reference: reference_lap.is_some(),
                 best_lap_ms,
+                llm_active,
+                llm_error: llm_error.clone(),
                 tts_active,
                 tts_error: tts_error.clone(),
             };

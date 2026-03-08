@@ -65,9 +65,10 @@ pub struct SimTraceApp {
     lap_store: crate::core::LapStore,
     /// Background coach thread; `None` when disabled or not yet started.
     coach: Option<CoachHandle>,
-    /// Snapshot of `tts_enabled` at the time the coach was last spawned.
-    /// Used to detect changes that require a coach restart.
+    /// Snapshots of relevant config at the time the coach was last spawned.
+    /// Any change to these triggers a coach restart so the new settings take effect.
     coach_spawned_tts: bool,
+    coach_spawned_llm: bool,
     /// Last N tips received from the coach thread, newest last.
     coach_tips: VecDeque<CoachTip>,
     /// Latest status snapshot from the coach thread.
@@ -117,6 +118,7 @@ impl SimTraceApp {
             lap_store: crate::core::LapStore::new(),
             coach: None,
             coach_spawned_tts: false,
+            coach_spawned_llm: false,
             coach_tips: VecDeque::new(),
             coach_status: CoachStatus::default(),
             llm_download_state,
@@ -216,13 +218,15 @@ impl eframe::App for SimTraceApp {
 
         // ── Coach lifecycle ──────────────────────────────────────────────────
         let coach_should_run = self.settings.coach.enabled && self.running;
-        // Restart if TTS toggled while coach is running (speaker is built at startup).
-        let tts_changed = self.settings.coach.tts_enabled != self.coach_spawned_tts;
-        if coach_should_run && self.coach.is_some() && tts_changed {
-            self.coach = None; // kill existing thread
+        // Restart if LLM or TTS toggled while running — both are built at thread start.
+        let needs_restart = self.settings.coach.tts_enabled != self.coach_spawned_tts
+            || self.settings.coach.llm_enabled != self.coach_spawned_llm;
+        if coach_should_run && self.coach.is_some() && needs_restart {
+            self.coach = None; // drop → thread exits cleanly
         }
         if coach_should_run && self.coach.is_none() {
             self.coach_spawned_tts = self.settings.coach.tts_enabled;
+            self.coach_spawned_llm = self.settings.coach.llm_enabled;
             self.coach = Some(CoachHandle::spawn(
                 self.settings.coach.clone(),
                 self.buffer.clone(),
@@ -1549,10 +1553,14 @@ fn draw_config(
                 ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
             }
             DownloadState::Ready => {
-                let (dot_col, status_text) = if settings.coach.llm_enabled {
-                    (egui::Color32::from_rgb(60, 200, 80), "LLM active")
+                let (dot_col, status_text) = if coach_status.llm_active {
+                    (egui::Color32::from_rgb(60, 200, 80), "LLM rephrasing")
+                } else if settings.coach.llm_enabled && coach_status.llm_error.is_some() {
+                    (ACCENT_RED, "Failed to load")
+                } else if settings.coach.llm_enabled {
+                    (egui::Color32::from_rgb(220, 140, 40), "Loading…")
                 } else {
-                    (LABEL_DIM, "LLM ready (disabled)")
+                    (LABEL_DIM, "LLM ready")
                 };
                 ui.horizontal(|ui| {
                     let (dot_rect, _) =
@@ -1562,6 +1570,9 @@ fn draw_config(
                         egui::RichText::new(status_text).size(10.0).monospace().color(dot_col),
                     );
                 });
+                if let Some(ref err) = coach_status.llm_error {
+                    ui.label(egui::RichText::new(format!("⚠  {err}")).size(9.0).color(ACCENT_RED));
+                }
                 ui.checkbox(&mut settings.coach.llm_enabled, "Enable LLM rephrasing");
             }
             DownloadState::Failed(err) => {

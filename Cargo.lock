@@ -2993,6 +2993,7 @@ dependencies = [
  "dirs",
  "eframe",
  "egui",
+ "encoding_rs",
  "llama-cpp-2",
  "memmap2",
  "serde",

@@ -9,6 +9,10 @@ use super::events::StructuredTip;
 /// Converts a `StructuredTip` into the final spoken/displayed string.
 pub trait Rephraser: Send + 'static {
     fn rephrase(&self, tip: &StructuredTip) -> String;
+    /// Returns `true` when this rephraser is backed by a live LLM.
+    fn is_llm(&self) -> bool {
+        false
+    }
 }
 
 /// Passthrough — returns `tip.fact` unchanged.
