@@ -14,6 +14,7 @@ pub mod llm;
 pub mod reference;
 pub mod rephraser;
 pub mod track_map;
+pub mod tts;
 
 #[allow(unused_imports)]
 pub use events::{CoachEvent, CoachTip, StructuredTip};
@@ -27,6 +28,8 @@ pub use track_map::TrackMap;
 pub use reference::{CornerPerf, ReferenceLap, ReferenceMeta, ReferenceSource};
 #[allow(unused_imports)]
 pub use rephraser::{PassthroughRephraser, Rephraser};
+#[allow(unused_imports)]
+pub use tts::{SilentSpeaker, Speaker};
 
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
@@ -52,6 +55,10 @@ pub struct CoachStatus {
     pub has_reference: bool,
     /// Best self-recorded lap time this session (ms), if any.
     pub best_lap_ms: Option<u32>,
+    /// Whether a TTS speaker is active and ready.
+    pub tts_active: bool,
+    /// Error string if TTS failed to initialize, or `None` when OK / not attempted.
+    pub tts_error: Option<String>,
 }
 
 // ── Internal messages ─────────────────────────────────────────────────────────
@@ -99,6 +106,23 @@ impl CoachHandle {
 
 // ── Background thread ─────────────────────────────────────────────────────────
 
+/// Build the best available speaker for the current configuration.
+///
+/// Returns `(speaker, error)`.  When TTS is disabled or unavailable `speaker`
+/// is `None`; `error` carries a human-readable reason when something went wrong.
+fn build_speaker(_config: &CoachConfig) -> (Option<Box<dyn tts::Speaker>>, Option<String>) {
+    if !_config.tts_enabled {
+        return (None, None);
+    }
+    #[cfg(feature = "coach-tts")]
+    match tts::NativeSpeaker::spawn() {
+        Ok(s) => return (Some(Box::new(s)), None),
+        Err(e) => return (None, Some(e.to_string())),
+    }
+    #[allow(unreachable_code)]
+    (None, Some("build without --features coach-tts".into()))
+}
+
 /// Build the best available rephraser for the current configuration.
 ///
 /// When the `coach-llm` feature is compiled in and the user has enabled LLM
@@ -130,6 +154,8 @@ fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sende
     let refs_dir = data_dir.join("references");
 
     let rephraser = build_rephraser(&config);
+    let (speaker, tts_error) = build_speaker(&config);
+    let tts_active = speaker.is_some();
     let mut lap_recorder = LapRecorder::new();
     let mut analyzer = analyzer::Analyzer::new();
 
@@ -206,7 +232,14 @@ fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sende
             // ── Real-time analysis ────────────────────────────────────────
             let rt_tips = analyzer.analyze_realtime(&sample);
             for tip in rt_tips {
-                maybe_send_tip(rephraser.as_ref(), tip, &tx, &mut last_tip_at, cooldown);
+                maybe_send_tip(
+                    rephraser.as_ref(),
+                    speaker.as_deref(),
+                    tip,
+                    &tx,
+                    &mut last_tip_at,
+                    cooldown,
+                );
             }
 
             // ── Corner tracking ───────────────────────────────────────────
@@ -232,6 +265,7 @@ fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sende
                             for tip in tips {
                                 maybe_send_tip(
                                     rephraser.as_ref(),
+                                    speaker.as_deref(),
                                     tip,
                                     &tx,
                                     &mut last_tip_at,
@@ -322,6 +356,8 @@ fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sende
                 corner_count: track_map.as_ref().map(|m| m.corners.len()).unwrap_or(0),
                 has_reference: reference_lap.is_some(),
                 best_lap_ms,
+                tts_active,
+                tts_error: tts_error.clone(),
             };
             // Best-effort send — if the UI thread is gone, we'll exit next iteration.
             if tx.send(CoachMsg::Status(status)).is_err() {
@@ -335,6 +371,7 @@ fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sende
 
 fn maybe_send_tip(
     rephraser: &dyn Rephraser,
+    speaker: Option<&dyn tts::Speaker>,
     tip: StructuredTip,
     tx: &mpsc::Sender<CoachMsg>,
     last_tip_at: &mut Option<Instant>,
@@ -345,6 +382,9 @@ fn maybe_send_tip(
         return;
     }
     let text = rephraser.rephrase(&tip);
+    if let Some(s) = speaker {
+        s.speak(&text);
+    }
     let coach_tip = CoachTip {
         text,
         corner_id: tip.corner_id,

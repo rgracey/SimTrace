@@ -13,6 +13,10 @@ authors = ["SimTrace Contributors"]
 coach-llm       = ["dep:llama-cpp-2"]
 coach-llm-metal = ["coach-llm", "llama-cpp-2?/metal"]
 coach-llm-cuda  = ["coach-llm", "llama-cpp-2?/cuda"]
+## Enable TTS using the platform's native speech engine (no downloads, no external deps).
+## macOS: AVSpeechSynthesizer.  Windows: WinRT / SAPI.
+## Build with `--features coach-tts`.
+coach-tts       = ["dep:tts"]
 
 [dependencies]
 # GUI
@@ -39,6 +43,9 @@ dirs = "5.0"
 
 # LLM rephraser (optional — gated by `coach-llm` feature)
 llama-cpp-2 = { version = "0.1", optional = true, default-features = false }
+
+# TTS via native OS engine (optional — gated by `coach-tts` feature)
+tts = { version = "0.26", optional = true, default-features = false }
 
 # HTTP downloads (model files)
 ureq = "2"

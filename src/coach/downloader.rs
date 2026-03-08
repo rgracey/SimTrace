@@ -6,13 +6,15 @@
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::fmt;
 
-// ── Public URL ────────────────────────────────────────────────────────────────
+// ── Public URLs ───────────────────────────────────────────────────────────────
 
 /// HuggingFace URL for the Qwen2.5-0.5B-Instruct Q8_0 GGUF model (~500 MB).
 pub const DEFAULT_MODEL_URL: &str =
     "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/\
      qwen2.5-0.5b-instruct-q8_0.gguf";
+
 
 // ── DownloadState ─────────────────────────────────────────────────────────────
 
@@ -36,6 +38,7 @@ pub enum DownloadState {
 pub fn model_exists(path: &Path) -> bool {
     path.exists() && path.metadata().map(|m| m.len() > 1024 * 1024).unwrap_or(false)
 }
+
 
 // ── Download ──────────────────────────────────────────────────────────────────
 
@@ -109,4 +112,18 @@ fn do_download(
     drop(file);
     std::fs::rename(&tmp_path, dest_path)?;
     Ok(())
+}
+
+
+// ── Display for DownloadState ─────────────────────────────────────────────────
+
+impl fmt::Display for DownloadState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DownloadState::NotDownloaded => write!(f, "not downloaded"),
+            DownloadState::Downloading(p) => write!(f, "downloading ({:.0}%)", p * 100.0),
+            DownloadState::Ready => write!(f, "ready"),
+            DownloadState::Failed(e) => write!(f, "failed: {e}"),
+        }
+    }
 }

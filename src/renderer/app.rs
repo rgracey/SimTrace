@@ -65,12 +65,15 @@ pub struct SimTraceApp {
     lap_store: crate::core::LapStore,
     /// Background coach thread; `None` when disabled or not yet started.
     coach: Option<CoachHandle>,
+    /// Snapshot of `tts_enabled` at the time the coach was last spawned.
+    /// Used to detect changes that require a coach restart.
+    coach_spawned_tts: bool,
     /// Last N tips received from the coach thread, newest last.
     coach_tips: VecDeque<CoachTip>,
     /// Latest status snapshot from the coach thread.
     coach_status: CoachStatus,
     /// Current state of the LLM model file (shared with the downloader thread).
-    download_state: Arc<Mutex<DownloadState>>,
+    llm_download_state: Arc<Mutex<DownloadState>>,
 }
 
 impl SimTraceApp {
@@ -87,7 +90,7 @@ impl SimTraceApp {
         let max_steering_angle = crate::plugins::create_plugin(&active_plugin)
             .map(|p| p.get_config().max_steering_angle)
             .unwrap_or(450.0);
-        let download_state = {
+        let llm_download_state = {
             let path = settings.coach.model_path();
             let state = if crate::coach::downloader::model_exists(&path) {
                 DownloadState::Ready
@@ -113,9 +116,10 @@ impl SimTraceApp {
             parsed_colors,
             lap_store: crate::core::LapStore::new(),
             coach: None,
+            coach_spawned_tts: false,
             coach_tips: VecDeque::new(),
             coach_status: CoachStatus::default(),
-            download_state,
+            llm_download_state,
         }
     }
 
@@ -212,7 +216,13 @@ impl eframe::App for SimTraceApp {
 
         // ── Coach lifecycle ──────────────────────────────────────────────────
         let coach_should_run = self.settings.coach.enabled && self.running;
+        // Restart if TTS toggled while coach is running (speaker is built at startup).
+        let tts_changed = self.settings.coach.tts_enabled != self.coach_spawned_tts;
+        if coach_should_run && self.coach.is_some() && tts_changed {
+            self.coach = None; // kill existing thread
+        }
         if coach_should_run && self.coach.is_none() {
+            self.coach_spawned_tts = self.settings.coach.tts_enabled;
             self.coach = Some(CoachHandle::spawn(
                 self.settings.coach.clone(),
                 self.buffer.clone(),
@@ -611,7 +621,7 @@ impl eframe::App for SimTraceApp {
                             &mut self.lap_store,
                             &self.coach_status,
                             &self.coach_tips,
-                            &self.download_state,
+                            &self.llm_download_state,
                         );
                     });
                     // Re-derive parsed colors in case the color pickers changed them.
@@ -1160,7 +1170,7 @@ fn draw_config(
     lap_store: &mut crate::core::LapStore,
     coach_status: &CoachStatus,
     coach_tips: &VecDeque<CoachTip>,
-    download_state: &Arc<Mutex<DownloadState>>,
+    llm_download_state: &Arc<Mutex<DownloadState>>,
 ) {
     // Ensure all widgets (sliders, dropdowns, colour pickers) use dark styling
     // regardless of the OS theme reported by the platform layer.
@@ -1513,8 +1523,8 @@ fn draw_config(
         ui.label(egui::RichText::new("LLM PHRASING").size(9.0).monospace().color(LABEL_DIM));
         ui.add_space(2.0);
 
-        let dl_state = download_state.lock().unwrap().clone();
-        match &dl_state {
+        let llm_state = llm_download_state.lock().unwrap().clone();
+        match &llm_state {
             DownloadState::NotDownloaded => {
                 ui.label(
                     egui::RichText::new("Model not downloaded (~500 MB)")
@@ -1525,12 +1535,12 @@ fn draw_config(
                     crate::coach::downloader::start_download(
                         crate::coach::downloader::DEFAULT_MODEL_URL.to_string(),
                         settings.coach.model_path(),
-                        Arc::clone(download_state),
+                        Arc::clone(llm_download_state),
                     );
                 }
             }
             DownloadState::Downloading(progress) => {
-                ui.label(egui::RichText::new("Downloading model…").size(10.0).color(LABEL_MID));
+                ui.label(egui::RichText::new("Downloading LLM…").size(10.0).color(LABEL_MID));
                 ui.add(
                     egui::ProgressBar::new(*progress)
                         .show_percentage()
@@ -1564,11 +1574,38 @@ fn draw_config(
                     crate::coach::downloader::start_download(
                         crate::coach::downloader::DEFAULT_MODEL_URL.to_string(),
                         settings.coach.model_path(),
-                        Arc::clone(download_state),
+                        Arc::clone(llm_download_state),
                     );
                 }
             }
         }
+
+        // ── TTS voice ─────────────────────────────────────────────────────────
+        ui.add_space(6.0);
+        ui.label(egui::RichText::new("VOICE (TTS)").size(9.0).monospace().color(LABEL_DIM));
+        ui.add_space(2.0);
+
+        let (dot_col, status_text) = if coach_status.tts_active {
+            (egui::Color32::from_rgb(60, 200, 80), "Speaking")
+        } else if settings.coach.tts_enabled {
+            if coach_status.tts_error.is_some() {
+                (ACCENT_RED, "Error — see below")
+            } else {
+                (egui::Color32::from_rgb(220, 140, 40), "Starting…")
+            }
+        } else {
+            (LABEL_DIM, "Disabled")
+        };
+        ui.horizontal(|ui| {
+            let (dot_rect, _) =
+                ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
+            ui.painter().circle_filled(dot_rect.center(), 4.0, dot_col);
+            ui.label(egui::RichText::new(status_text).size(10.0).monospace().color(dot_col));
+        });
+        if let Some(ref err) = coach_status.tts_error {
+            ui.label(egui::RichText::new(format!("⚠  {err}")).size(9.0).color(ACCENT_RED));
+        }
+        ui.checkbox(&mut settings.coach.tts_enabled, "Enable spoken tips");
 
         ui.add_space(4.0);
         if ui.add(styled_button("Open data folder")).clicked() {

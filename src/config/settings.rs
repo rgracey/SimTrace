@@ -41,6 +41,7 @@ fn default_llm_model_file() -> String {
     "qwen2.5-0.5b-instruct-q8_0.gguf".to_string()
 }
 
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum ReferenceLapStrategy {
@@ -62,6 +63,7 @@ impl CoachConfig {
     pub fn model_path(&self) -> std::path::PathBuf {
         self.data_dir().join("models").join(&self.llm_model_file)
     }
+
 }
 
 impl Default for CoachConfig {
