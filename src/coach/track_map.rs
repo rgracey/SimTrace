@@ -48,7 +48,10 @@ impl TrackMap {
     /// Load a track map for the given name and length. Returns `None` if no
     /// file exists yet (normal on first visit to a track).
     pub fn load(dir: &Path, track_name: &str, track_length_m: f32) -> Option<Self> {
-        let path = dir.join(format!("{}.json", make_safe_name(track_name, track_length_m)));
+        let path = dir.join(format!(
+            "{}.json",
+            make_safe_name(track_name, track_length_m)
+        ));
         let json = std::fs::read_to_string(&path).ok()?;
         serde_json::from_str(&json).ok()
     }

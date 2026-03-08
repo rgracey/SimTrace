@@ -116,11 +116,7 @@ impl ReferenceLap {
     }
 
     /// Load the driver's own reference for a given track stem and car name.
-    pub fn load_self(
-        references_dir: &Path,
-        track_stem: &str,
-        car_name: &str,
-    ) -> Option<Self> {
+    pub fn load_self(references_dir: &Path, track_stem: &str, car_name: &str) -> Option<Self> {
         let filename = self_filename(car_name);
         let path = references_dir.join(track_stem).join(filename);
         let json = std::fs::read_to_string(&path).ok()?;

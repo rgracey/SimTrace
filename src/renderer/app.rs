@@ -1455,7 +1455,6 @@ fn draw_config(
             );
         });
 
-
         // Reference lap strategy
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("Reference").size(10.0).color(LABEL_MID));
@@ -1507,7 +1506,12 @@ fn draw_config(
 
         // ── TTS voice ─────────────────────────────────────────────────────────
         ui.add_space(6.0);
-        ui.label(egui::RichText::new("VOICE (TTS)").size(9.0).monospace().color(LABEL_DIM));
+        ui.label(
+            egui::RichText::new("VOICE (TTS)")
+                .size(9.0)
+                .monospace()
+                .color(LABEL_DIM),
+        );
         ui.add_space(2.0);
 
         let (dot_col, status_text) = if coach_status.tts_active {
@@ -1525,10 +1529,19 @@ fn draw_config(
             let (dot_rect, _) =
                 ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
             ui.painter().circle_filled(dot_rect.center(), 4.0, dot_col);
-            ui.label(egui::RichText::new(status_text).size(10.0).monospace().color(dot_col));
+            ui.label(
+                egui::RichText::new(status_text)
+                    .size(10.0)
+                    .monospace()
+                    .color(dot_col),
+            );
         });
         if let Some(ref err) = coach_status.tts_error {
-            ui.label(egui::RichText::new(format!("⚠  {err}")).size(9.0).color(ACCENT_RED));
+            ui.label(
+                egui::RichText::new(format!("⚠  {err}"))
+                    .size(9.0)
+                    .color(ACCENT_RED),
+            );
         }
         ui.checkbox(&mut settings.coach.tts_enabled, "Enable spoken tips");
 

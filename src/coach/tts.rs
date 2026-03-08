@@ -49,7 +49,10 @@ impl NativeSpeaker {
         let thread = std::thread::Builder::new()
             .name("simtrace-tts".into())
             .spawn(move || tts_thread(rx))?;
-        Ok(Self { tx, _thread: thread })
+        Ok(Self {
+            tx,
+            _thread: thread,
+        })
     }
 }
 

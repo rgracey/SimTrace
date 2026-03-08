@@ -130,10 +130,7 @@ impl LapRecorder {
 
             self.lap_number += 1;
             self.lap_start = std::time::Instant::now();
-            let samples = std::mem::replace(
-                &mut self.current_samples,
-                Vec::with_capacity(8000),
-            );
+            let samples = std::mem::replace(&mut self.current_samples, Vec::with_capacity(8000));
 
             return Some(LapData {
                 samples,

@@ -17,14 +17,14 @@ pub mod track_map;
 pub mod tts;
 
 #[allow(unused_imports)]
+pub use corner::{CornerDetector, DetectedCorner};
+#[allow(unused_imports)]
 pub use events::{CoachEvent, CoachTip, StructuredTip};
 #[allow(unused_imports)]
 pub use lap::{LapData, LapRecorder, LapSample};
 #[allow(unused_imports)]
-pub use corner::{CornerDetector, DetectedCorner};
-pub use track_map::TrackMap;
-#[allow(unused_imports)]
 pub use reference::{CornerPerf, ReferenceLap, ReferenceMeta, ReferenceSource};
+pub use track_map::TrackMap;
 #[allow(unused_imports)]
 pub use tts::{SilentSpeaker, Speaker};
 
@@ -98,7 +98,11 @@ impl CoachHandle {
             .name("simtrace-coach".into())
             .spawn(move || coach_loop(config, buffer, tx, shutdown_clone))
             .expect("failed to spawn coach thread");
-        Self { rx, shutdown, thread: Some(thread) }
+        Self {
+            rx,
+            shutdown,
+            thread: Some(thread),
+        }
     }
 
     /// Drain all pending tips and status updates. Call once per UI frame.
@@ -134,7 +138,12 @@ fn build_speaker(_config: &CoachConfig) -> (Option<Box<dyn tts::Speaker>>, Optio
     (None, Some("build without --features coach-tts".into()))
 }
 
-fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sender<CoachMsg>, shutdown: Arc<AtomicBool>) {
+fn coach_loop(
+    config: CoachConfig,
+    buffer: Arc<TelemetryBuffer>,
+    tx: mpsc::Sender<CoachMsg>,
+    shutdown: Arc<AtomicBool>,
+) {
     let data_dir = config.data_dir();
     let tracks_dir = data_dir.join("tracks");
     let refs_dir = data_dir.join("references");
@@ -192,20 +201,15 @@ fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sende
         if track_map.is_none() {
             if let Some(ref s) = session {
                 if !s.track_name.is_empty() {
-                    if let Some(map) =
-                        TrackMap::load(&tracks_dir, &s.track_name, s.track_length)
-                    {
+                    if let Some(map) = TrackMap::load(&tracks_dir, &s.track_name, s.track_length) {
                         info!(
                             "Coach: loaded track map '{}' ({} corners)",
                             map.track_name,
                             map.corners.len()
                         );
                         // Also try to load a saved reference lap.
-                        reference_lap = ReferenceLap::load_self(
-                            &refs_dir,
-                            &map.file_stem(),
-                            &s.car_name,
-                        );
+                        reference_lap =
+                            ReferenceLap::load_self(&refs_dir, &map.file_stem(), &s.car_name);
                         if reference_lap.is_some() {
                             info!("Coach: loaded self reference lap");
                         }
@@ -216,10 +220,14 @@ fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sende
         }
 
         for point in &new_points {
-            let sample = LapSample::from_point(point, lap_recorder.current_samples()
-                .first()
-                .map(|_| Instant::now()) // lap_start is internal; use relative elapsed
-                .unwrap_or(Instant::now()));
+            let sample = LapSample::from_point(
+                point,
+                lap_recorder
+                    .current_samples()
+                    .first()
+                    .map(|_| Instant::now()) // lap_start is internal; use relative elapsed
+                    .unwrap_or(Instant::now()),
+            );
 
             // ── Lap recording ─────────────────────────────────────────────
             let completed = lap_recorder.push(point, session.as_ref());
@@ -227,31 +235,38 @@ fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sende
             // ── Real-time analysis ────────────────────────────────────────
             let rt_tips = analyzer.analyze_realtime(&sample);
             for tip in rt_tips {
-                maybe_send_tip(
-                    speaker.as_deref(),
-                    tip,
-                    &tx,
-                    &mut last_tip_at,
-                    cooldown,
-                );
+                maybe_send_tip(speaker.as_deref(), tip, &tx, &mut last_tip_at, cooldown);
             }
 
             // ── Anticipatory tips ────────────────────────────────────────
             // Tips fire before corners on the next lap.
             if let Some(map) = &track_map {
-                let track_len = if map.track_length_m > 0.0 { map.track_length_m } else { 3000.0 };
+                let track_len = if map.track_length_m > 0.0 {
+                    map.track_length_m
+                } else {
+                    3000.0
+                };
                 for corner in &map.corners {
                     let d_frac = {
                         let d = corner.brake_point - sample.track_pos;
-                        if d < 0.0 { d + 1.0 } else { d }
+                        if d < 0.0 {
+                            d + 1.0
+                        } else {
+                            d
+                        }
                     };
                     let dist_m = d_frac * track_len;
                     if dist_m > 50.0 && dist_m < 150.0 {
-                        let already = anticipatory_fired.get(&corner.id)
+                        let already = anticipatory_fired
+                            .get(&corner.id)
                             .map(|&fired_pos| {
                                 let gap = {
                                     let d = sample.track_pos - fired_pos;
-                                    if d < 0.0 { d + 1.0 } else { d }
+                                    if d < 0.0 {
+                                        d + 1.0
+                                    } else {
+                                        d
+                                    }
                                 };
                                 gap < 0.8
                             })
@@ -291,7 +306,10 @@ fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sende
                         // Exited a corner — run post-corner analysis.
                         let ref_perf = reference_lap.as_ref().and_then(|r| r.corner(prev));
                         if let Some(c) = map.corner_by_id(prev).cloned() {
-                            let track_len = track_map.as_ref().map(|m| m.track_length_m).unwrap_or(3000.0);
+                            let track_len = track_map
+                                .as_ref()
+                                .map(|m| m.track_length_m)
+                                .unwrap_or(3000.0);
                             // Require >=3 laps of data before coaching this corner —
                             // early detections are noisy and produce unreliable tips.
                             let tips = if c.confidence >= 3 {
@@ -351,11 +369,8 @@ fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sende
                 if track_map.is_none() && lap.samples.len() > 100 {
                     let corners = CornerDetector::detect(&lap.samples);
                     if !corners.is_empty() {
-                        let map = TrackMap::new(
-                            lap.track_name.clone(),
-                            lap.track_length_m,
-                            corners,
-                        );
+                        let map =
+                            TrackMap::new(lap.track_name.clone(), lap.track_length_m, corners);
                         info!(
                             "Coach: detected {} corners on '{}'",
                             map.corners.len(),
@@ -374,19 +389,28 @@ fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sende
                 // ── Lap summary tip ───────────────────────────────────────
                 if let Some(lap_time) = lap.lap_time_ms {
                     let lap_str = format_lap_time(lap_time);
-                    let delta_str = reference_lap.as_ref()
+                    let delta_str = reference_lap
+                        .as_ref()
                         .and_then(|r| r.lap_time_ms)
                         .map(|ref_ms| {
                             let delta_s = (lap_time as f32 - ref_ms as f32) / 1000.0;
                             format!(" — {:+.1}s", delta_s)
                         })
                         .unwrap_or_default();
-                    let focus_str = pending_corner_tips.iter()
+                    let focus_str = pending_corner_tips
+                        .iter()
                         .max_by_key(|(_, (_, pri))| *pri)
                         .map(|(&id, _)| format!(" Focus turn {}.", id))
                         .unwrap_or_default();
                     let summary = format!("{}{}.{}", lap_str, delta_str, focus_str);
-                    send_tip_text(summary, None, speaker.as_deref(), &tx, &mut last_tip_at, cooldown);
+                    send_tip_text(
+                        summary,
+                        None,
+                        speaker.as_deref(),
+                        &tx,
+                        &mut last_tip_at,
+                        cooldown,
+                    );
                 }
 
                 // Update reference lap according to the configured strategy.

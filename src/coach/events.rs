@@ -29,71 +29,39 @@ pub enum CoachEvent {
         std_dev_track_pos: f32,
     },
     /// ABS activating more than expected — too much pressure.
-    AbsAbuse {
-        count: u32,
-        window_secs: f32,
-    },
+    AbsAbuse { count: u32, window_secs: f32 },
     /// Brake released too abruptly before apex — trail brake dropped.
-    TrailBrakeTooShort {
-        corner_id: u8,
-    },
+    TrailBrakeTooShort { corner_id: u8 },
 
     // ── Corner ───────────────────────────────────────────────────────────────
     /// Apex speed lower than reference — time being lost mid-corner.
-    SlowApex {
-        corner_id: u8,
-        delta_kph: f32,
-    },
+    SlowApex { corner_id: u8, delta_kph: f32 },
     /// Apex speed faster than reference — positive feedback.
-    ImprovedApexSpeed {
-        corner_id: u8,
-        delta_kph: f32,
-    },
+    ImprovedApexSpeed { corner_id: u8, delta_kph: f32 },
     /// Brake still active deep in corner — entry understeer.
-    EntryUndersteer {
-        corner_id: u8,
-    },
+    EntryUndersteer { corner_id: u8 },
     /// Steering reversal detected mid-corner — overdriving entry.
-    MidCornerCorrection {
-        corner_id: u8,
-    },
+    MidCornerCorrection { corner_id: u8 },
 
     // ── Exit ─────────────────────────────────────────────────────────────────
     /// Throttle applied before car is rotated — TC being triggered.
-    ThrottleTooEarly {
-        corner_id: u8,
-    },
+    ThrottleTooEarly { corner_id: u8 },
     /// Throttle applied later than reference — exit speed being left behind.
-    ThrottleTooLate {
-        corner_id: u8,
-        delta_track_pos: f32,
-    },
+    ThrottleTooLate { corner_id: u8, delta_track_pos: f32 },
     /// TC activating more than expected — throttle too aggressive or early.
-    TcAbuse {
-        count: u32,
-        window_secs: f32,
-    },
+    TcAbuse { count: u32, window_secs: f32 },
 
     // ── Macro ────────────────────────────────────────────────────────────────
     /// No throttle, no brake for too long at racing speed.
-    CoastingExcessive {
-        duration_ms: u32,
-        speed_kph: f32,
-    },
+    CoastingExcessive { duration_ms: u32, speed_kph: f32 },
     /// Both pedals active simultaneously (not a blip).
-    ThrottleBrakeOverlap {
-        overlap_ms: u32,
-    },
+    ThrottleBrakeOverlap { overlap_ms: u32 },
     /// High-frequency steering reversals — nervous / sawing inputs.
-    SteeringSaw {
-        reversals_per_sec: f32,
-    },
+    SteeringSaw { reversals_per_sec: f32 },
 
     // ── Positive ─────────────────────────────────────────────────────────────
     /// Consistent brake point across multiple laps — reinforce.
-    ConsistentBrakePoint {
-        corner_id: u8,
-    },
+    ConsistentBrakePoint { corner_id: u8 },
 }
 
 /// A coaching event paired with a plain-English fact string and metadata.

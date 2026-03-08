@@ -43,8 +43,7 @@ impl CoachConfig {
         if let Some(ref p) = self.data_dir_override {
             return std::path::PathBuf::from(p);
         }
-        AppSettings::config_dir()
-            .unwrap_or_else(|| std::path::PathBuf::from("."))
+        AppSettings::config_dir().unwrap_or_else(|| std::path::PathBuf::from("."))
     }
 }
 
