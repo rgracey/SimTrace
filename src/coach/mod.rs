@@ -22,15 +22,13 @@ pub use events::{CoachEvent, CoachTip, StructuredTip};
 pub use lap::{LapData, LapRecorder, LapSample};
 #[allow(unused_imports)]
 pub use corner::{CornerDetector, DetectedCorner};
-pub use downloader::DownloadState;
 pub use track_map::TrackMap;
 #[allow(unused_imports)]
 pub use reference::{CornerPerf, ReferenceLap, ReferenceMeta, ReferenceSource};
 #[allow(unused_imports)]
-pub use rephraser::{PassthroughRephraser, Rephraser};
-#[allow(unused_imports)]
 pub use tts::{SilentSpeaker, Speaker};
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
@@ -56,10 +54,6 @@ pub struct CoachStatus {
     pub has_reference: bool,
     /// Best self-recorded lap time this session (ms), if any.
     pub best_lap_ms: Option<u32>,
-    /// Whether the LLM rephraser loaded successfully.
-    pub llm_active: bool,
-    /// Error string if LLM failed to load, or `None` when OK / not attempted.
-    pub llm_error: Option<String>,
     /// Whether a TTS speaker is active and ready.
     pub tts_active: bool,
     /// Error string if TTS failed to initialize, or `None` when OK / not attempted.
@@ -140,51 +134,11 @@ fn build_speaker(_config: &CoachConfig) -> (Option<Box<dyn tts::Speaker>>, Optio
     (None, Some("build without --features coach-tts".into()))
 }
 
-/// Build the best available rephraser.
-///
-/// Returns `(rephraser, error)`.  `error` is `Some` whenever LLM was requested
-/// but could not be loaded, explaining why.
-fn build_rephraser(_config: &CoachConfig) -> (Box<dyn Rephraser>, Option<String>) {
-    if !_config.llm_enabled {
-        return (Box::new(PassthroughRephraser), None);
-    }
-
-    #[cfg(feature = "coach-llm")]
-    {
-        let model_path = _config.model_path();
-        if !downloader::model_exists(&model_path) {
-            return (
-                Box::new(PassthroughRephraser),
-                Some(format!("model not found at {}", model_path.display())),
-            );
-        }
-        info!("Coach: loading LLM from {:?}", model_path);
-        match llm::LlmRephraser::load(&model_path) {
-            Ok(r) => {
-                info!("Coach: LLM rephraser ready");
-                return (Box::new(r), None);
-            }
-            Err(e) => {
-                tracing::warn!("Coach: LLM load failed — {e}");
-                return (Box::new(PassthroughRephraser), Some(e.to_string()));
-            }
-        }
-    }
-
-    #[allow(unreachable_code)]
-    (
-        Box::new(PassthroughRephraser),
-        Some("LLM support not compiled into this build".into()),
-    )
-}
-
 fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sender<CoachMsg>, shutdown: Arc<AtomicBool>) {
     let data_dir = config.data_dir();
     let tracks_dir = data_dir.join("tracks");
     let refs_dir = data_dir.join("references");
 
-    let (rephraser, llm_error) = build_rephraser(&config);
-    let llm_active = rephraser.is_llm();
     let (speaker, tts_error) = build_speaker(&config);
     let tts_active = speaker.is_some();
     let mut lap_recorder = LapRecorder::new();
@@ -203,6 +157,13 @@ fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sende
 
     let cooldown = Duration::from_secs(config.cooldown_secs as u64);
     let mut last_tip_at: Option<Instant> = None;
+
+    // Coach mode: pending tips to fire before each corner next lap.
+    // Maps corner_id → tip text.
+    let mut pending_corner_tips: HashMap<u8, String> = HashMap::new();
+    // Track which corners have had their anticipatory tip fired this approach
+    // (maps corner_id → track_pos when fired, to detect a new lap's approach).
+    let mut anticipatory_fired: HashMap<u8, f32> = HashMap::new();
 
     // Emit status every N seconds.
     let mut last_status_at = Instant::now();
@@ -267,13 +228,49 @@ fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sende
             let rt_tips = analyzer.analyze_realtime(&sample);
             for tip in rt_tips {
                 maybe_send_tip(
-                    rephraser.as_ref(),
                     speaker.as_deref(),
                     tip,
                     &tx,
                     &mut last_tip_at,
                     cooldown,
                 );
+            }
+
+            // ── Anticipatory tips ────────────────────────────────────────
+            // Tips fire before corners on the next lap.
+            if let Some(map) = &track_map {
+                let track_len = if map.track_length_m > 0.0 { map.track_length_m } else { 3000.0 };
+                for corner in &map.corners {
+                    let d_frac = {
+                        let d = corner.brake_point - sample.track_pos;
+                        if d < 0.0 { d + 1.0 } else { d }
+                    };
+                    let dist_m = d_frac * track_len;
+                    if dist_m > 50.0 && dist_m < 150.0 {
+                        let already = anticipatory_fired.get(&corner.id)
+                            .map(|&fired_pos| {
+                                let gap = {
+                                    let d = sample.track_pos - fired_pos;
+                                    if d < 0.0 { d + 1.0 } else { d }
+                                };
+                                gap < 0.8
+                            })
+                            .unwrap_or(false);
+                        if !already {
+                            if let Some(text) = pending_corner_tips.get(&corner.id).cloned() {
+                                send_tip_text(
+                                    text,
+                                    Some(corner.id),
+                                    speaker.as_deref(),
+                                    &tx,
+                                    &mut last_tip_at,
+                                    cooldown,
+                                );
+                                anticipatory_fired.insert(corner.id, sample.track_pos);
+                            }
+                        }
+                    }
+                }
             }
 
             // ── Corner tracking ───────────────────────────────────────────
@@ -297,15 +294,23 @@ fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sende
                             let track_len = track_map.as_ref().map(|m| m.track_length_m).unwrap_or(3000.0);
                             let tips =
                                 analyzer.analyze_corner(&c, &corner_samples, ref_perf, track_len);
-                            for tip in tips {
-                                maybe_send_tip(
-                                    rephraser.as_ref(),
-                                    speaker.as_deref(),
-                                    tip,
-                                    &tx,
-                                    &mut last_tip_at,
-                                    cooldown,
-                                );
+                            // Store the highest-priority tip for anticipatory delivery before the next lap.
+                            // On the first time we see a corner, also send it immediately so lap 1
+                            // isn't completely silent.
+                            if let Some(best) = tips.into_iter().max_by_key(|t| t.priority) {
+                                let text = best.fact.clone();
+                                let first_time = !pending_corner_tips.contains_key(&prev);
+                                pending_corner_tips.insert(prev, text.clone());
+                                if first_time {
+                                    send_tip_text(
+                                        text,
+                                        Some(prev),
+                                        speaker.as_deref(),
+                                        &tx,
+                                        &mut last_tip_at,
+                                        cooldown,
+                                    );
+                                }
                             }
                         }
                         // Start the new corner if we immediately entered one.
@@ -391,8 +396,6 @@ fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sende
                 corner_count: track_map.as_ref().map(|m| m.corners.len()).unwrap_or(0),
                 has_reference: reference_lap.is_some(),
                 best_lap_ms,
-                llm_active,
-                llm_error: llm_error.clone(),
                 tts_active,
                 tts_error: tts_error.clone(),
             };
@@ -406,8 +409,34 @@ fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sende
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/// Send a pre-rephrased tip text directly (used in Coach/anticipatory mode).
+fn send_tip_text(
+    text: String,
+    corner_id: Option<u8>,
+    speaker: Option<&dyn tts::Speaker>,
+    tx: &mpsc::Sender<CoachMsg>,
+    last_tip_at: &mut Option<Instant>,
+    cooldown: Duration,
+) {
+    let ready = last_tip_at.map_or(true, |t| t.elapsed() >= cooldown);
+    if !ready {
+        return;
+    }
+    if let Some(s) = speaker {
+        s.speak(&text);
+    }
+    let coach_tip = CoachTip {
+        text,
+        corner_id,
+        priority: 3,
+        generated_at: Instant::now(),
+    };
+    if tx.send(CoachMsg::Tip(coach_tip)).is_ok() {
+        *last_tip_at = Some(Instant::now());
+    }
+}
+
 fn maybe_send_tip(
-    rephraser: &dyn Rephraser,
     speaker: Option<&dyn tts::Speaker>,
     tip: StructuredTip,
     tx: &mpsc::Sender<CoachMsg>,
@@ -418,7 +447,7 @@ fn maybe_send_tip(
     if !ready {
         return;
     }
-    let text = rephraser.rephrase(&tip);
+    let text = tip.fact.clone();
     if let Some(s) = speaker {
         s.speak(&text);
     }

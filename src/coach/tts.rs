@@ -33,7 +33,7 @@ impl Speaker for SilentSpeaker {
 /// `NativeSpeaker` itself is `Send` — it only holds a channel sender.
 #[cfg(feature = "coach-tts")]
 pub struct NativeSpeaker {
-    tx: std::sync::mpsc::SyncSender<String>,
+    tx: std::sync::mpsc::Sender<String>,
     _thread: std::thread::JoinHandle<()>,
 }
 
@@ -45,8 +45,7 @@ impl NativeSpeaker {
     /// happens on the thread itself; errors are logged but won't propagate
     /// here (the thread simply exits, and `speak()` calls become no-ops).
     pub fn spawn() -> anyhow::Result<Self> {
-        // Bounded to 2: newest tip displaces old ones rather than queuing forever.
-        let (tx, rx) = std::sync::mpsc::sync_channel::<String>(2);
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
         let thread = std::thread::Builder::new()
             .name("simtrace-tts".into())
             .spawn(move || tts_thread(rx))?;
@@ -57,8 +56,9 @@ impl NativeSpeaker {
 #[cfg(feature = "coach-tts")]
 impl Speaker for NativeSpeaker {
     fn speak(&self, text: &str) {
-        // Non-blocking: drop the tip if the queue is full (previous tip still playing).
-        let _ = self.tx.try_send(text.to_string());
+        // Blocking send — the TTS thread always drains the channel promptly,
+        // and the 20 s coach cooldown means this queue rarely has more than 1 item.
+        let _ = self.tx.send(text.to_string());
     }
 }
 
@@ -76,9 +76,9 @@ fn tts_thread(rx: std::sync::mpsc::Receiver<String>) {
     tracing::info!("TTS: native engine ready");
 
     for text in rx {
-        // `interrupt = true` cuts off any in-progress speech so the new tip
-        // is heard immediately rather than waiting in a system queue.
-        if let Err(e) = engine.speak(&text, true) {
+        // `interrupt = false` — let each utterance play fully.
+        // Tips are spaced by cooldown so they won't pile up.
+        if let Err(e) = engine.speak(&text, false) {
             tracing::warn!("TTS: speak error — {e}");
         }
     }

@@ -6,13 +6,6 @@ description = "Sim racing telemetry visualization tool"
 authors = ["SimTrace Contributors"]
 
 [features]
-## Enable the local LLM rephraser (llama.cpp via llama-cpp-2).
-## Build with `--features coach-llm` for CPU-only.
-## Add `--features coach-llm-metal`  on Apple Silicon / Intel Mac.
-## Add `--features coach-llm-cuda`   on Windows with an NVIDIA GPU.
-coach-llm       = ["dep:llama-cpp-2", "dep:encoding_rs"]
-coach-llm-metal = ["coach-llm", "llama-cpp-2?/metal"]
-coach-llm-cuda  = ["coach-llm", "llama-cpp-2?/cuda"]
 ## Enable TTS using the platform's native speech engine (no downloads, no external deps).
 ## macOS: AVSpeechSynthesizer.  Windows: WinRT / SAPI.
 ## Build with `--features coach-tts`.
@@ -41,15 +34,8 @@ tracing-appender = "0.2"
 # Platform directories
 dirs = "5.0"
 
-# LLM rephraser (optional — gated by `coach-llm` feature)
-llama-cpp-2 = { version = "0.1", optional = true, default-features = false }
-encoding_rs  = { version = "0.8", optional = true }
-
 # TTS via native OS engine (optional — gated by `coach-tts` feature)
 tts = { version = "0.26", optional = true, default-features = false }
-
-# HTTP downloads (model files)
-ureq = "2"
 
 # Shared memory (Windows)
 [target.'cfg(windows)'.dependencies]

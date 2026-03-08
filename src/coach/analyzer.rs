@@ -140,8 +140,7 @@ impl Analyzer {
                     window_secs: ABS_WINDOW_SECS as f32,
                 },
                 format!(
-                    "ABS has activated {} times in {} seconds — \
-                     you're arriving at corners with too much brake pressure.",
+                    "Ease the brakes — ABS firing {} times in {}s",
                     abs_count, ABS_WINDOW_SECS
                 ),
                 3,
@@ -163,8 +162,7 @@ impl Analyzer {
                     window_secs: TC_WINDOW_SECS as f32,
                 },
                 format!(
-                    "Traction control has fired {} times in {} seconds — \
-                     try applying throttle later or more progressively on corner exits.",
+                    "Progressive on the power — TC fired {} times in {}s",
                     tc_count, TC_WINDOW_SECS
                 ),
                 3,
@@ -181,11 +179,7 @@ impl Analyzer {
             if ms > OVERLAP_MIN_MS {
                 tips.push(StructuredTip::new(
                     CoachEvent::ThrottleBrakeOverlap { overlap_ms: ms },
-                    format!(
-                        "Throttle and brake were both active for {} ms — \
-                         fully release one pedal before applying the other.",
-                        ms
-                    ),
+                    "Clean pedal inputs — brake and throttle overlapping".to_string(),
                     2,
                     None,
                 ));
@@ -205,11 +199,7 @@ impl Analyzer {
                         duration_ms: ms,
                         speed_kph: sample.speed_kph,
                     },
-                    format!(
-                        "You coasted for {} ms at {:.0} kph with no pedal input — \
-                         carry that momentum with trail braking rather than lifting early.",
-                        ms, sample.speed_kph
-                    ),
+                    "Don't lift — trail brake instead".to_string(),
                     2,
                     None,
                 ));
@@ -241,11 +231,7 @@ impl Analyzer {
                         CoachEvent::SteeringSaw {
                             reversals_per_sec: rps,
                         },
-                        format!(
-                            "Steering is reversing direction {:.0} times per second — \
-                             commit to smoother, more deliberate inputs.",
-                            rps
-                        ),
+                        "Smooth inputs — steering too aggressive".to_string(),
                         2,
                         None,
                     ));
@@ -310,10 +296,7 @@ impl Analyzer {
                         delta_track_pos: delta,
                         estimated_time_lost_ms: delta_m * 10.0,
                     },
-                    format!(
-                        "Corner {}: brake {}m later.",
-                        corner.id, round_m(delta_m)
-                    ),
+                    format!("Brake {}m later", round_m(delta_m)),
                     3,
                     Some(corner.id),
                 ));
@@ -329,8 +312,9 @@ impl Analyzer {
                             entry_speed_delta_kph: speed_delta,
                         },
                         format!(
-                            "Corner {}: entry is {:.0} kph too fast — move the brake point {}m earlier.",
-                            corner.id, speed_delta, round_m(-delta_m)
+                            "{}m earlier on the brakes — you're {:.0}kph too hot",
+                            round_m(-delta_m),
+                            speed_delta
                         ),
                         4,
                         Some(corner.id),
@@ -356,10 +340,7 @@ impl Analyzer {
                         corner_id: corner.id,
                         delta_track_pos: delta,
                     },
-                    format!(
-                        "Corner {}: get on the power {}m earlier on exit.",
-                        corner.id, round_m(delta_m)
-                    ),
+                    format!("Power {}m earlier on the way out", round_m(delta_m)),
                     3,
                     Some(corner.id),
                 ));
@@ -371,11 +352,10 @@ impl Analyzer {
                 if tc_hits > TC_CORNER_THRESHOLD {
                     brake_or_throttle_tip_fired = true;
                     tips.push(StructuredTip::new(
-                        CoachEvent::ThrottleTooEarly { corner_id: corner.id },
-                        format!(
-                            "Corner {}: throttle is {}m too early — wait for the car to settle, TC fired {} times.",
-                            corner.id, round_m(-delta_m), tc_hits
-                        ),
+                        CoachEvent::ThrottleTooEarly {
+                            corner_id: corner.id,
+                        },
+                        format!("Hold the throttle — TC fired {} times on exit", tc_hits),
                         3,
                         Some(corner.id),
                     ));
@@ -391,8 +371,8 @@ impl Analyzer {
                     delta_kph: apex_delta,
                 },
                 format!(
-                    "Corner {}: you're {:.0} kph slower at the apex than your reference.",
-                    corner.id, apex_delta
+                    "You're {:.0}kph down at the apex — carry more speed",
+                    apex_delta
                 ),
                 4,
                 Some(corner.id),
