@@ -175,6 +175,9 @@ fn coach_loop(
     let mut anticipatory_fired: HashMap<u8, f32> = HashMap::new();
     // Per-corner apex speed from the most recent lap, for improvement detection.
     let mut last_apex_speed: HashMap<u8, f32> = HashMap::new();
+    // Consecutive laps a corner has had the same highest-priority tip with no improvement.
+    // Used for escalation (≥3 laps) and suppression (≥5 laps).
+    let mut corner_tip_laps: HashMap<u8, (String, u32)> = HashMap::new(); // corner_id → (tip_text, streak)
 
     // Emit status every N seconds.
     let mut last_status_at = Instant::now();
@@ -376,24 +379,53 @@ fn coach_loop(
                             // On the first time we see a corner, also send it immediately so lap 1
                             // isn't completely silent.
                             if let Some(best) = tips.into_iter().max_by_key(|t| t.priority) {
-                                let text = best.fact.clone();
+                                let base_text = best.fact.clone();
                                 let priority = best.priority;
                                 let first_time = !pending_corner_tips.contains_key(&prev);
-                                pending_corner_tips.insert(prev, (text.clone(), priority));
-                                if first_time {
-                                    send_tip_text(
-                                        text,
-                                        Some(prev),
-                                        speaker.as_deref(),
-                                        &tx,
-                                        &mut last_tip_at,
-                                        cooldown,
-                                    );
+
+                                // Update repeat streak.
+                                let streak = {
+                                    let entry = corner_tip_laps
+                                        .entry(prev)
+                                        .or_insert((base_text.clone(), 0));
+                                    if entry.0 == base_text {
+                                        entry.1 += 1;
+                                    } else {
+                                        // Different tip — issue changed, reset streak.
+                                        *entry = (base_text.clone(), 1);
+                                    }
+                                    entry.1
+                                };
+
+                                if streak >= 5 {
+                                    // Silenced — driver has heard this many times, drop it.
+                                    pending_corner_tips.remove(&prev);
+                                } else {
+                                    // Escalate after 3 laps with the same tip and no improvement.
+                                    let text = if streak >= 3 && !improved {
+                                        format!("Still — {}. Commit to it.", base_text.trim_end_matches('.'))
+                                    } else {
+                                        base_text
+                                    };
+                                    pending_corner_tips.insert(prev, (text.clone(), priority));
+                                    if first_time {
+                                        send_tip_text(
+                                            text,
+                                            Some(prev),
+                                            speaker.as_deref(),
+                                            &tx,
+                                            &mut last_tip_at,
+                                            cooldown,
+                                        );
+                                    }
                                 }
-                            } else if improved {
-                                // Corner is clean (no tips) and improved — remove from pending
-                                // so it doesn't clutter the focus list.
-                                pending_corner_tips.remove(&prev);
+                            } else {
+                                // No tips this exit — corner is clean.
+                                corner_tip_laps.remove(&prev);
+                                if improved {
+                                    // Corner is clean and improved — remove from pending.
+                                    pending_corner_tips.remove(&prev);
+                                }
                             }
                         }
                         // Start the new corner if we immediately entered one.
