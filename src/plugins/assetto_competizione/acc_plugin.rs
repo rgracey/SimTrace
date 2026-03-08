@@ -5,7 +5,7 @@ use std::f32::consts::PI;
 use anyhow::Result;
 use tracing::{info, warn};
 
-use crate::core::{TelemetryData, VehicleTelemetry};
+use crate::core::{SessionInfo, TelemetryData, VehicleTelemetry};
 use crate::plugins::{GameConfig, GamePlugin};
 
 use super::mapping::{decode_wstring, status};
@@ -93,6 +93,22 @@ impl GamePlugin for AccPlugin {
             track_position: graphics.normalized_car_position,
         };
 
+        let static_info = unsafe { mem.static_info() };
+        let track_name = decode_wstring(&static_info.track);
+        let car_name = decode_wstring(&static_info.car_model);
+
+        let session = SessionInfo {
+            session_number: graphics.session as u32,
+            session_type: String::new(),
+            session_time: graphics.session_time_left,
+            track_length: 0.0, // not exposed in SPageFileStatic
+            track_name,
+            car_name,
+            completed_laps: graphics.completed_laps as u32,
+            current_lap_time_ms: graphics.i_current_time,
+            last_lap_time_ms: graphics.i_last_time,
+        };
+
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -101,7 +117,7 @@ impl GamePlugin for AccPlugin {
         Ok(Some(TelemetryData {
             timestamp,
             vehicle,
-            session: None,
+            session: Some(session),
         }))
     }
 

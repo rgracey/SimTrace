@@ -10,6 +10,54 @@ pub struct AppSettings {
     pub graph: GraphSettings,
     pub colors: ColorScheme,
     pub overlay: OverlaySettings,
+    #[serde(default)]
+    pub coach: CoachConfig,
+}
+
+/// AI coaching configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoachConfig {
+    /// Whether the AI coach is enabled. Off by default (opt-in).
+    pub enabled: bool,
+    /// Whether spoken TTS output is enabled.
+    pub tts_enabled: bool,
+    /// Minimum seconds between consecutive spoken/displayed tips.
+    pub cooldown_secs: u32,
+    /// Which lap to use as the reference: "best" or "last".
+    pub reference_lap_strategy: ReferenceLapStrategy,
+    /// Override for the data directory (track maps, reference laps).
+    /// `None` means use the platform default alongside other config.
+    pub data_dir_override: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ReferenceLapStrategy {
+    Best,
+    Last,
+}
+
+impl CoachConfig {
+    /// Returns the directory used for track maps and reference laps.
+    pub fn data_dir(&self) -> std::path::PathBuf {
+        if let Some(ref p) = self.data_dir_override {
+            return std::path::PathBuf::from(p);
+        }
+        AppSettings::config_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+    }
+}
+
+impl Default for CoachConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            tts_enabled: false,
+            cooldown_secs: 20,
+            reference_lap_strategy: ReferenceLapStrategy::Best,
+            data_dir_override: None,
+        }
+    }
 }
 
 /// Which game plugin is active.
@@ -198,6 +246,7 @@ impl Default for AppSettings {
                 opacity: 1.0,
                 pinned: false,
             },
+            coach: CoachConfig::default(),
         }
     }
 }

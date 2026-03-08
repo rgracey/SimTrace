@@ -2736,6 +2736,7 @@ dependencies = [
  "egui",
  "memmap2",
  "serde",
+ "serde_json",
  "toml",
  "tracing",
  "tracing-appender",

@@ -1,6 +1,7 @@
 //! SimTrace - Sim racing telemetry visualization
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
+mod coach;
 mod config;
 mod core;
 mod plugins;

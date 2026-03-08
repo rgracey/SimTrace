@@ -55,6 +55,19 @@ pub struct SessionInfo {
     pub track_name: String,
     /// Car name
     pub car_name: String,
+    /// Number of fully completed laps this session
+    #[serde(default)]
+    pub completed_laps: u32,
+    /// Current in-progress lap time in milliseconds (-1 = unavailable)
+    #[serde(default = "minus_one")]
+    pub current_lap_time_ms: i32,
+    /// Last completed lap time in milliseconds (-1 = unavailable)
+    #[serde(default = "minus_one")]
+    pub last_lap_time_ms: i32,
+}
+
+fn minus_one() -> i32 {
+    -1
 }
 
 /// A telemetry point stored in the buffer

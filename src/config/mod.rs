@@ -2,4 +2,4 @@
 
 pub mod settings;
 
-pub use settings::{AppSettings, GraphSettings, ParsedColors};
+pub use settings::{AppSettings, CoachConfig, GraphSettings, ParsedColors, ReferenceLapStrategy};

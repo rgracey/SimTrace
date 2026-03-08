@@ -2,14 +2,18 @@
 
 use anyhow::Result;
 
-use crate::core::{TelemetryData, VehicleTelemetry};
+use crate::core::{SessionInfo, TelemetryData, VehicleTelemetry};
 use crate::plugins::{GameConfig, GamePlugin};
+
+/// Simulated lap time for the mock track (seconds).
+const MOCK_LAP_SECS: f32 = 90.0;
 
 /// Simulated telemetry plugin (always available, no game required)
 pub struct MockPlugin {
     connected: bool,
     simulation_time: f32,
     last_update: Option<std::time::Instant>,
+    completed_laps: u32,
 }
 
 impl MockPlugin {
@@ -18,6 +22,7 @@ impl MockPlugin {
             connected: false,
             simulation_time: 0.0,
             last_update: None,
+            completed_laps: 0,
         }
     }
 
@@ -127,7 +132,7 @@ impl MockPlugin {
             rpm,
             abs_active,
             tc_active: false,
-            track_position: (t * 0.01).fract(),
+            track_position: (t / MOCK_LAP_SECS).fract(),
         }
     }
 }
@@ -167,10 +172,32 @@ impl GamePlugin for MockPlugin {
             return Ok(None);
         }
         let telemetry = self.generate_telemetry();
+
+        let lap_elapsed = self.simulation_time % MOCK_LAP_SECS;
+        let new_completed = (self.simulation_time / MOCK_LAP_SECS) as u32;
+        let last_lap_time_ms = if new_completed > self.completed_laps {
+            self.completed_laps = new_completed;
+            (MOCK_LAP_SECS * 1000.0) as i32
+        } else {
+            -1
+        };
+
+        let session = SessionInfo {
+            session_number: 1,
+            session_type: "Practice".to_string(),
+            session_time: self.simulation_time,
+            track_length: 5000.0,
+            track_name: "Mock Circuit".to_string(),
+            car_name: "Mock GT3".to_string(),
+            completed_laps: self.completed_laps,
+            current_lap_time_ms: (lap_elapsed * 1000.0) as i32,
+            last_lap_time_ms,
+        };
+
         Ok(Some(TelemetryData {
             timestamp: (self.simulation_time * 1000.0) as u64,
             vehicle: telemetry,
-            session: None,
+            session: Some(session),
         }))
     }
 

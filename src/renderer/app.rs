@@ -1,9 +1,11 @@
 //! Main application
 
-use crate::config::{AppSettings, ParsedColors};
+use crate::coach::{CoachHandle, CoachStatus, CoachTip};
+use crate::config::{AppSettings, ParsedColors, ReferenceLapStrategy};
 use crate::core::{DataCollector, TelemetryBuffer};
 use eframe::egui;
 use egui::color_picker::{color_edit_button_srgba, Alpha};
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 // The buffer is kept larger than the maximum display window so the slider can
@@ -61,6 +63,12 @@ pub struct SimTraceApp {
     parsed_colors: ParsedColors,
     /// Lap boundary detection and per-lap telemetry for comparison.
     lap_store: crate::core::LapStore,
+    /// Background coach thread; `None` when disabled or not yet started.
+    coach: Option<CoachHandle>,
+    /// Last N tips received from the coach thread, newest last.
+    coach_tips: VecDeque<CoachTip>,
+    /// Latest status snapshot from the coach thread.
+    coach_status: CoachStatus,
 }
 
 impl SimTraceApp {
@@ -93,6 +101,9 @@ impl SimTraceApp {
             save_toast: None,
             parsed_colors,
             lap_store: crate::core::LapStore::new(),
+            coach: None,
+            coach_tips: VecDeque::new(),
+            coach_status: CoachStatus::default(),
         }
     }
 
@@ -185,6 +196,32 @@ impl eframe::App for SimTraceApp {
         }
         if self.settings.collector.plugin != self.active_plugin {
             self.activate_plugin();
+        }
+
+        // ── Coach lifecycle ──────────────────────────────────────────────────
+        let coach_should_run = self.settings.coach.enabled && self.running;
+        if coach_should_run && self.coach.is_none() {
+            self.coach = Some(CoachHandle::spawn(
+                self.settings.coach.clone(),
+                self.buffer.clone(),
+            ));
+        }
+        if !coach_should_run && self.coach.is_some() {
+            self.coach = None; // drop sender → thread exits cleanly
+        }
+
+        // Drain tips and status updates from the coach thread.
+        if let Some(ref handle) = self.coach {
+            let (new_tips, new_status) = handle.drain();
+            for tip in new_tips {
+                self.coach_tips.push_back(tip);
+                while self.coach_tips.len() > 3 {
+                    self.coach_tips.pop_front();
+                }
+            }
+            if let Some(s) = new_status {
+                self.coach_status = s;
+            }
         }
 
         // ── Read latest telemetry ────────────────────────────────────────────
@@ -435,9 +472,20 @@ impl eframe::App for SimTraceApp {
                     // resized yet (content_rect would have near-zero height).
                     if content_rect.height() > 10.0 {
                         if self.running {
+                            // Reserve coach tip strip at the bottom if we have tips.
+                            let coach_tip = self.coach_tips.back();
+                            let tip_h = if coach_tip.is_some() { 20.0_f32 } else { 0.0 };
+                            let telem_rect = egui::Rect::from_min_max(
+                                content_rect.shrink(2.0).min,
+                                egui::pos2(
+                                    content_rect.shrink(2.0).max.x,
+                                    content_rect.max.y - tip_h - 2.0,
+                                ),
+                            );
+
                             let mut content_ui = ui.new_child(
                                 egui::UiBuilder::new()
-                                    .max_rect(content_rect.shrink(2.0))
+                                    .max_rect(telem_rect)
                                     .layout(egui::Layout::top_down(egui::Align::LEFT)),
                             );
                             draw_telemetry(
@@ -451,6 +499,30 @@ impl eframe::App for SimTraceApp {
                                 cap_r,
                                 reference_lap.as_deref(),
                             );
+
+                            // ── Coach tip strip ──────────────────────────────
+                            if let Some(tip) = coach_tip {
+                                let tip_rect = egui::Rect::from_min_max(
+                                    egui::pos2(
+                                        content_rect.min.x + 6.0,
+                                        content_rect.max.y - tip_h,
+                                    ),
+                                    egui::pos2(
+                                        content_rect.max.x - cap_r - 4.0,
+                                        content_rect.max.y,
+                                    ),
+                                );
+                                let age_secs = tip.generated_at.elapsed().as_secs_f32();
+                                let tip_alpha =
+                                    ((1.0 - (age_secs / 20.0).min(1.0)) * a as f32) as u8;
+                                ui.painter().text(
+                                    tip_rect.left_center(),
+                                    egui::Align2::LEFT_CENTER,
+                                    &tip.text,
+                                    egui::FontId::proportional(9.5),
+                                    egui::Color32::from_rgba_unmultiplied(200, 200, 255, tip_alpha),
+                                );
+                            }
                         } else {
                             let font_size = (content_rect.height() * 0.28).clamp(14.0, 42.0);
                             ui.painter().text(
@@ -525,6 +597,8 @@ impl eframe::App for SimTraceApp {
                             &mut self.save_toast,
                             buffer.as_ref(),
                             &mut self.lap_store,
+                            &self.coach_status,
+                            &self.coach_tips,
                         );
                     });
                     // Re-derive parsed colors in case the color pickers changed them.
@@ -1071,6 +1145,8 @@ fn draw_config(
     save_toast: &mut Option<std::time::Instant>,
     buffer: Option<&Arc<crate::core::TelemetryBuffer>>,
     lap_store: &mut crate::core::LapStore,
+    coach_status: &CoachStatus,
+    coach_tips: &VecDeque<CoachTip>,
 ) {
     // Ensure all widgets (sliders, dropdowns, colour pickers) use dark styling
     // regardless of the OS theme reported by the platform layer.
@@ -1301,6 +1377,127 @@ fn draw_config(
             lap_store.clear_reference();
         }
     });
+
+    // ── AI Coach ─────────────────────────────────────────────────────────────
+    section_header(ui, "AI COACH");
+
+    ui.horizontal(|ui| {
+        ui.checkbox(&mut settings.coach.enabled, "Enable coach");
+    });
+
+    if settings.coach.enabled {
+        ui.add_space(4.0);
+
+        // Status row
+        ui.horizontal(|ui| {
+            let (dot_col, label) = if coach_status.has_track_map {
+                (
+                    egui::Color32::from_rgb(60, 200, 80),
+                    format!("{} corners mapped", coach_status.corner_count),
+                )
+            } else {
+                (
+                    egui::Color32::from_rgb(220, 140, 40),
+                    "Learning track…".to_string(),
+                )
+            };
+            let (dot_rect, _) =
+                ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
+            ui.painter().circle_filled(dot_rect.center(), 4.0, dot_col);
+            ui.label(
+                egui::RichText::new(&label)
+                    .size(10.0)
+                    .monospace()
+                    .color(dot_col),
+            );
+        });
+
+        if coach_status.has_reference {
+            let ref_label = if let Some(ms) = coach_status.best_lap_ms {
+                let mins = ms / 60_000;
+                let secs = (ms % 60_000) as f32 / 1000.0;
+                format!("Reference: {:02}:{:06.3}", mins, secs)
+            } else {
+                "Reference: set".to_string()
+            };
+            ui.label(egui::RichText::new(ref_label).size(10.0).color(LABEL_MID));
+        } else {
+            ui.label(
+                egui::RichText::new("Reference: none yet")
+                    .size(10.0)
+                    .color(LABEL_DIM),
+            );
+        }
+
+        ui.add_space(4.0);
+
+        // Cooldown slider
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new("Tip cooldown")
+                    .size(10.0)
+                    .color(LABEL_MID),
+            );
+            ui.add(
+                egui::Slider::new(&mut settings.coach.cooldown_secs, 5..=60)
+                    .suffix(" s")
+                    .clamping(egui::SliderClamping::Always),
+            );
+        });
+
+        // Reference lap strategy
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Reference").size(10.0).color(LABEL_MID));
+            egui::ComboBox::from_id_salt("ref_strategy")
+                .selected_text(match settings.coach.reference_lap_strategy {
+                    ReferenceLapStrategy::Best => "Best lap",
+                    ReferenceLapStrategy::Last => "Last lap",
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut settings.coach.reference_lap_strategy,
+                        ReferenceLapStrategy::Best,
+                        "Best lap",
+                    );
+                    ui.selectable_value(
+                        &mut settings.coach.reference_lap_strategy,
+                        ReferenceLapStrategy::Last,
+                        "Last lap",
+                    );
+                });
+        });
+
+        // Recent tips
+        if !coach_tips.is_empty() {
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new("RECENT TIPS")
+                    .size(9.0)
+                    .color(LABEL_DIM),
+            );
+            for tip in coach_tips.iter().rev() {
+                let age = tip.generated_at.elapsed().as_secs();
+                let age_str = if age < 60 {
+                    format!("{}s ago", age)
+                } else {
+                    format!("{}m ago", age / 60)
+                };
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(&age_str)
+                            .size(8.0)
+                            .color(LABEL_DIM)
+                            .monospace(),
+                    );
+                    ui.label(egui::RichText::new(&tip.text).size(9.0).color(LABEL_MID));
+                });
+            }
+        }
+
+        if ui.add(styled_button("Open data folder")).clicked() {
+            open_in_file_manager(&settings.coach.data_dir());
+        }
+    }
 
     // ── Logs ─────────────────────────────────────────────────────────────────
     section_header(ui, "LOGS");

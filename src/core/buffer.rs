@@ -4,7 +4,7 @@
 use std::sync::RwLock;
 use std::time::Duration;
 
-use crate::core::{TelemetryPoint, VehicleTelemetry};
+use crate::core::{SessionInfo, TelemetryPoint, VehicleTelemetry};
 
 /// Buffer storing telemetry points with a configurable time window
 pub struct TelemetryBuffer {
@@ -14,6 +14,8 @@ pub struct TelemetryBuffer {
     data: RwLock<Vec<TelemetryPoint>>,
     /// Minimum points to keep (prevents empty buffer)
     min_points: usize,
+    /// Latest session info received from the active plugin
+    session: RwLock<Option<SessionInfo>>,
 }
 
 impl TelemetryBuffer {
@@ -23,6 +25,7 @@ impl TelemetryBuffer {
             window_duration,
             data: RwLock::new(Vec::with_capacity(1000)),
             min_points: 10,
+            session: RwLock::new(None),
         }
     }
 
@@ -52,6 +55,16 @@ impl TelemetryBuffer {
             .collect()
     }
 
+    /// Store the latest session info from the active plugin.
+    pub fn update_session(&self, session: SessionInfo) {
+        *self.session.write().unwrap() = Some(session);
+    }
+
+    /// Returns a clone of the most recently received session info.
+    pub fn latest_session(&self) -> Option<SessionInfo> {
+        self.session.read().unwrap().clone()
+    }
+
     /// Get the latest point
     pub fn latest(&self) -> Option<TelemetryPoint> {
         let data = self.data.read().unwrap();
@@ -61,6 +74,7 @@ impl TelemetryBuffer {
     /// Clear all data
     pub fn clear(&self) {
         self.data.write().unwrap().clear();
+        *self.session.write().unwrap() = None;
     }
 
     /// Returns the configured time window.

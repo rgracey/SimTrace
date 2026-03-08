@@ -73,6 +73,9 @@ impl DataCollector {
             match plugin.read_telemetry() {
                 Ok(Some(data)) => {
                     let abs_active = data.vehicle.abs_active;
+                    if let Some(session) = data.session {
+                        self.buffer.update_session(session);
+                    }
                     self.buffer.push(data.vehicle, abs_active);
                 }
                 Ok(None) => {}
