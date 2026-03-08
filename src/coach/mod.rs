@@ -239,49 +239,62 @@ fn coach_loop(
             }
 
             // ── Anticipatory tips ────────────────────────────────────────
-            // Tips fire before corners on the next lap.
+            // Only the highest-priority pending corner fires per lap —
+            // focus the driver on one thing at a time.
             if let Some(map) = &track_map {
                 let track_len = if map.track_length_m > 0.0 {
                     map.track_length_m
                 } else {
                     3000.0
                 };
-                for corner in &map.corners {
-                    let d_frac = {
-                        let d = corner.brake_point - sample.track_pos;
-                        if d < 0.0 {
-                            d + 1.0
-                        } else {
-                            d
-                        }
-                    };
-                    let dist_m = d_frac * track_len;
-                    if dist_m > 50.0 && dist_m < 150.0 {
-                        let already = anticipatory_fired
-                            .get(&corner.id)
-                            .map(|&fired_pos| {
-                                let gap = {
-                                    let d = sample.track_pos - fired_pos;
-                                    if d < 0.0 {
-                                        d + 1.0
-                                    } else {
-                                        d
-                                    }
-                                };
-                                gap < 0.8
-                            })
-                            .unwrap_or(false);
-                        if !already {
-                            if let Some((text, _)) = pending_corner_tips.get(&corner.id).cloned() {
-                                send_tip_text(
-                                    text,
-                                    Some(corner.id),
-                                    speaker.as_deref(),
-                                    &tx,
-                                    &mut last_tip_at,
-                                    cooldown,
-                                );
-                                anticipatory_fired.insert(corner.id, sample.track_pos);
+
+                // Find the single corner with the highest priority tip that still has
+                // something to say.
+                let focus_corner_id = pending_corner_tips
+                    .iter()
+                    .max_by_key(|(_, (_, pri))| *pri)
+                    .map(|(&id, _)| id);
+
+                if let Some(focus_id) = focus_corner_id {
+                    if let Some(corner) = map.corner_by_id(focus_id) {
+                        let d_frac = {
+                            let d = corner.brake_point - sample.track_pos;
+                            if d < 0.0 {
+                                d + 1.0
+                            } else {
+                                d
+                            }
+                        };
+                        let dist_m = d_frac * track_len;
+                        if dist_m > 50.0 && dist_m < 150.0 {
+                            let already = anticipatory_fired
+                                .get(&corner.id)
+                                .map(|&fired_pos| {
+                                    let gap = {
+                                        let d = sample.track_pos - fired_pos;
+                                        if d < 0.0 {
+                                            d + 1.0
+                                        } else {
+                                            d
+                                        }
+                                    };
+                                    gap < 0.8
+                                })
+                                .unwrap_or(false);
+                            if !already {
+                                if let Some((text, _)) =
+                                    pending_corner_tips.get(&corner.id).cloned()
+                                {
+                                    send_tip_text(
+                                        text,
+                                        Some(corner.id),
+                                        speaker.as_deref(),
+                                        &tx,
+                                        &mut last_tip_at,
+                                        cooldown,
+                                    );
+                                    anticipatory_fired.insert(corner.id, sample.track_pos);
+                                }
                             }
                         }
                     }
