@@ -65,6 +65,7 @@ impl TrackMap {
         self.corners.iter().find(|c| c.id == id)
     }
 
+    #[allow(dead_code)]
     pub fn corner_by_id_mut(&mut self, id: u8) -> Option<&mut DetectedCorner> {
         self.corners.iter_mut().find(|c| c.id == id)
     }

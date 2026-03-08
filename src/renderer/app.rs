@@ -1,12 +1,12 @@
 //! Main application
 
-use crate::coach::{CoachHandle, CoachStatus, CoachTip};
+use crate::coach::{CoachHandle, CoachStatus, CoachTip, DownloadState};
 use crate::config::{AppSettings, ParsedColors, ReferenceLapStrategy};
 use crate::core::{DataCollector, TelemetryBuffer};
 use eframe::egui;
 use egui::color_picker::{color_edit_button_srgba, Alpha};
 use std::collections::VecDeque;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 // The buffer is kept larger than the maximum display window so the slider can
 // show the full range without data disappearing at the top.
@@ -69,6 +69,8 @@ pub struct SimTraceApp {
     coach_tips: VecDeque<CoachTip>,
     /// Latest status snapshot from the coach thread.
     coach_status: CoachStatus,
+    /// Current state of the LLM model file (shared with the downloader thread).
+    download_state: Arc<Mutex<DownloadState>>,
 }
 
 impl SimTraceApp {
@@ -85,6 +87,15 @@ impl SimTraceApp {
         let max_steering_angle = crate::plugins::create_plugin(&active_plugin)
             .map(|p| p.get_config().max_steering_angle)
             .unwrap_or(450.0);
+        let download_state = {
+            let path = settings.coach.model_path();
+            let state = if crate::coach::downloader::model_exists(&path) {
+                DownloadState::Ready
+            } else {
+                DownloadState::NotDownloaded
+            };
+            Arc::new(Mutex::new(state))
+        };
         Self {
             settings,
             buffer: Arc::new(TelemetryBuffer::new(std::time::Duration::from_secs(
@@ -104,6 +115,7 @@ impl SimTraceApp {
             coach: None,
             coach_tips: VecDeque::new(),
             coach_status: CoachStatus::default(),
+            download_state,
         }
     }
 
@@ -599,6 +611,7 @@ impl eframe::App for SimTraceApp {
                             &mut self.lap_store,
                             &self.coach_status,
                             &self.coach_tips,
+                            &self.download_state,
                         );
                     });
                     // Re-derive parsed colors in case the color pickers changed them.
@@ -1147,6 +1160,7 @@ fn draw_config(
     lap_store: &mut crate::core::LapStore,
     coach_status: &CoachStatus,
     coach_tips: &VecDeque<CoachTip>,
+    download_state: &Arc<Mutex<DownloadState>>,
 ) {
     // Ensure all widgets (sliders, dropdowns, colour pickers) use dark styling
     // regardless of the OS theme reported by the platform layer.
@@ -1494,6 +1508,69 @@ fn draw_config(
             }
         }
 
+        // ── LLM rephrasing ────────────────────────────────────────────────────
+        ui.add_space(6.0);
+        ui.label(egui::RichText::new("LLM PHRASING").size(9.0).monospace().color(LABEL_DIM));
+        ui.add_space(2.0);
+
+        let dl_state = download_state.lock().unwrap().clone();
+        match &dl_state {
+            DownloadState::NotDownloaded => {
+                ui.label(
+                    egui::RichText::new("Model not downloaded (~500 MB)")
+                        .size(10.0)
+                        .color(LABEL_DIM),
+                );
+                if ui.add(styled_button("Download Qwen2.5-0.5B")).clicked() {
+                    crate::coach::downloader::start_download(
+                        crate::coach::downloader::DEFAULT_MODEL_URL.to_string(),
+                        settings.coach.model_path(),
+                        Arc::clone(download_state),
+                    );
+                }
+            }
+            DownloadState::Downloading(progress) => {
+                ui.label(egui::RichText::new("Downloading model…").size(10.0).color(LABEL_MID));
+                ui.add(
+                    egui::ProgressBar::new(*progress)
+                        .show_percentage()
+                        .desired_width(ui.available_width()),
+                );
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
+            }
+            DownloadState::Ready => {
+                let (dot_col, status_text) = if settings.coach.llm_enabled {
+                    (egui::Color32::from_rgb(60, 200, 80), "LLM active")
+                } else {
+                    (LABEL_DIM, "LLM ready (disabled)")
+                };
+                ui.horizontal(|ui| {
+                    let (dot_rect, _) =
+                        ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
+                    ui.painter().circle_filled(dot_rect.center(), 4.0, dot_col);
+                    ui.label(
+                        egui::RichText::new(status_text).size(10.0).monospace().color(dot_col),
+                    );
+                });
+                ui.checkbox(&mut settings.coach.llm_enabled, "Enable LLM rephrasing");
+            }
+            DownloadState::Failed(err) => {
+                ui.label(
+                    egui::RichText::new(format!("Download failed: {err}"))
+                        .size(9.0)
+                        .color(ACCENT_RED),
+                );
+                if ui.add(styled_button("Retry")).clicked() {
+                    crate::coach::downloader::start_download(
+                        crate::coach::downloader::DEFAULT_MODEL_URL.to_string(),
+                        settings.coach.model_path(),
+                        Arc::clone(download_state),
+                    );
+                }
+            }
+        }
+
+        ui.add_space(4.0);
         if ui.add(styled_button("Open data folder")).clicked() {
             open_in_file_manager(&settings.coach.data_dir());
         }

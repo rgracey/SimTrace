@@ -28,6 +28,17 @@ pub struct CoachConfig {
     /// Override for the data directory (track maps, reference laps).
     /// `None` means use the platform default alongside other config.
     pub data_dir_override: Option<String>,
+    /// Whether to use the local LLM for tip rephrasing.
+    /// Requires the `coach-llm` feature and the model file to be downloaded.
+    #[serde(default)]
+    pub llm_enabled: bool,
+    /// GGUF model filename, relative to `<data_dir>/models/`.
+    #[serde(default = "default_llm_model_file")]
+    pub llm_model_file: String,
+}
+
+fn default_llm_model_file() -> String {
+    "qwen2.5-0.5b-instruct-q8_0.gguf".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -46,6 +57,11 @@ impl CoachConfig {
         AppSettings::config_dir()
             .unwrap_or_else(|| std::path::PathBuf::from("."))
     }
+
+    /// Full path to the GGUF model file.
+    pub fn model_path(&self) -> std::path::PathBuf {
+        self.data_dir().join("models").join(&self.llm_model_file)
+    }
 }
 
 impl Default for CoachConfig {
@@ -56,6 +72,8 @@ impl Default for CoachConfig {
             cooldown_secs: 20,
             reference_lap_strategy: ReferenceLapStrategy::Best,
             data_dir_override: None,
+            llm_enabled: false,
+            llm_model_file: default_llm_model_file(),
         }
     }
 }

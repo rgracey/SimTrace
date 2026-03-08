@@ -7,8 +7,10 @@
 
 pub mod analyzer;
 pub mod corner;
+pub mod downloader;
 pub mod events;
 pub mod lap;
+pub mod llm;
 pub mod reference;
 pub mod rephraser;
 pub mod track_map;
@@ -19,6 +21,7 @@ pub use events::{CoachEvent, CoachTip, StructuredTip};
 pub use lap::{LapData, LapRecorder, LapSample};
 #[allow(unused_imports)]
 pub use corner::{CornerDetector, DetectedCorner};
+pub use downloader::DownloadState;
 pub use track_map::TrackMap;
 #[allow(unused_imports)]
 pub use reference::{CornerPerf, ReferenceLap, ReferenceMeta, ReferenceSource};
@@ -96,12 +99,37 @@ impl CoachHandle {
 
 // ── Background thread ─────────────────────────────────────────────────────────
 
+/// Build the best available rephraser for the current configuration.
+///
+/// When the `coach-llm` feature is compiled in and the user has enabled LLM
+/// rephrasing, tries to load the GGUF model.  Falls back to the passthrough
+/// rephraser on any failure (missing file, load error, feature disabled).
+fn build_rephraser(_config: &CoachConfig) -> Box<dyn Rephraser> {
+    #[cfg(feature = "coach-llm")]
+    if _config.llm_enabled {
+        let model_path = _config.model_path();
+        if downloader::model_exists(&model_path) {
+            info!("Coach: loading LLM from {:?}", model_path);
+            match llm::LlmRephraser::load(&model_path) {
+                Ok(r) => {
+                    info!("Coach: LLM rephraser ready");
+                    return Box::new(r);
+                }
+                Err(e) => tracing::warn!("Coach: LLM load failed — {e}"),
+            }
+        } else {
+            info!("Coach: LLM enabled but model not downloaded yet");
+        }
+    }
+    Box::new(PassthroughRephraser)
+}
+
 fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sender<CoachMsg>) {
     let data_dir = config.data_dir();
     let tracks_dir = data_dir.join("tracks");
     let refs_dir = data_dir.join("references");
 
-    let rephraser = PassthroughRephraser; // Stage 2: swap for LlmRephraser
+    let rephraser = build_rephraser(&config);
     let mut lap_recorder = LapRecorder::new();
     let mut analyzer = analyzer::Analyzer::new();
 
@@ -178,7 +206,7 @@ fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sende
             // ── Real-time analysis ────────────────────────────────────────
             let rt_tips = analyzer.analyze_realtime(&sample);
             for tip in rt_tips {
-                maybe_send_tip(&rephraser, tip, &tx, &mut last_tip_at, cooldown);
+                maybe_send_tip(rephraser.as_ref(), tip, &tx, &mut last_tip_at, cooldown);
             }
 
             // ── Corner tracking ───────────────────────────────────────────
@@ -203,7 +231,7 @@ fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sende
                                 analyzer.analyze_corner(&c, &corner_samples, ref_perf);
                             for tip in tips {
                                 maybe_send_tip(
-                                    &rephraser,
+                                    rephraser.as_ref(),
                                     tip,
                                     &tx,
                                     &mut last_tip_at,
@@ -306,7 +334,7 @@ fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sende
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn maybe_send_tip(
-    rephraser: &impl Rephraser,
+    rephraser: &dyn Rephraser,
     tip: StructuredTip,
     tx: &mpsc::Sender<CoachMsg>,
     last_tip_at: &mut Option<Instant>,
