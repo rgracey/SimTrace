@@ -173,6 +173,8 @@ fn coach_loop(
     // Track which corners have had their anticipatory tip fired this approach
     // (maps corner_id → track_pos when fired, to detect a new lap's approach).
     let mut anticipatory_fired: HashMap<u8, f32> = HashMap::new();
+    // Per-corner apex speed from the most recent lap, for improvement detection.
+    let mut last_apex_speed: HashMap<u8, f32> = HashMap::new();
 
     // Emit status every N seconds.
     let mut last_status_at = Instant::now();
@@ -323,6 +325,33 @@ fn coach_loop(
                                 .as_ref()
                                 .map(|m| m.track_length_m)
                                 .unwrap_or(3000.0);
+
+                            // Compute apex speed for this corner exit.
+                            let this_apex = corner_samples
+                                .iter()
+                                .map(|s| s.speed_kph)
+                                .fold(f32::INFINITY, f32::min);
+                            let this_apex = if this_apex.is_finite() {
+                                Some(this_apex)
+                            } else {
+                                None
+                            };
+
+                            // Check for improvement vs last recorded apex speed.
+                            const IMPROVEMENT_THRESHOLD_KPH: f32 = 3.0;
+                            let improved = if let (Some(prev_apex), Some(curr_apex)) =
+                                (last_apex_speed.get(&prev).copied(), this_apex)
+                            {
+                                curr_apex - prev_apex >= IMPROVEMENT_THRESHOLD_KPH
+                            } else {
+                                false
+                            };
+
+                            // Update stored apex speed for next lap's comparison.
+                            if let Some(apex) = this_apex {
+                                last_apex_speed.insert(prev, apex);
+                            }
+
                             // Require >=3 laps of data before coaching this corner —
                             // early detections are noisy and produce unreliable tips.
                             let tips = if c.confidence >= 3 {
@@ -330,6 +359,19 @@ fn coach_loop(
                             } else {
                                 vec![]
                             };
+
+                            // Fire a positive acknowledgment when apex speed clearly improved.
+                            if improved {
+                                send_tip_text(
+                                    format!("Better at turn {}.", prev),
+                                    Some(prev),
+                                    speaker.as_deref(),
+                                    &tx,
+                                    &mut last_tip_at,
+                                    cooldown,
+                                );
+                            }
+
                             // Store the highest-priority tip for anticipatory delivery before the next lap.
                             // On the first time we see a corner, also send it immediately so lap 1
                             // isn't completely silent.
@@ -348,6 +390,10 @@ fn coach_loop(
                                         cooldown,
                                     );
                                 }
+                            } else if improved {
+                                // Corner is clean (no tips) and improved — remove from pending
+                                // so it doesn't clutter the focus list.
+                                pending_corner_tips.remove(&prev);
                             }
                         }
                         // Start the new corner if we immediately entered one.
