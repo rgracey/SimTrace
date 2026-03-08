@@ -159,8 +159,8 @@ fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sende
     let mut last_tip_at: Option<Instant> = None;
 
     // Coach mode: pending tips to fire before each corner next lap.
-    // Maps corner_id → tip text.
-    let mut pending_corner_tips: HashMap<u8, String> = HashMap::new();
+    // Maps corner_id → (tip text, priority) so we can surface the worst corner in lap summaries.
+    let mut pending_corner_tips: HashMap<u8, (String, u8)> = HashMap::new();
     // Track which corners have had their anticipatory tip fired this approach
     // (maps corner_id → track_pos when fired, to detect a new lap's approach).
     let mut anticipatory_fired: HashMap<u8, f32> = HashMap::new();
@@ -257,7 +257,7 @@ fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sende
                             })
                             .unwrap_or(false);
                         if !already {
-                            if let Some(text) = pending_corner_tips.get(&corner.id).cloned() {
+                            if let Some((text, _)) = pending_corner_tips.get(&corner.id).cloned() {
                                 send_tip_text(
                                     text,
                                     Some(corner.id),
@@ -299,8 +299,9 @@ fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sende
                             // isn't completely silent.
                             if let Some(best) = tips.into_iter().max_by_key(|t| t.priority) {
                                 let text = best.fact.clone();
+                                let priority = best.priority;
                                 let first_time = !pending_corner_tips.contains_key(&prev);
-                                pending_corner_tips.insert(prev, text.clone());
+                                pending_corner_tips.insert(prev, (text.clone(), priority));
                                 if first_time {
                                     send_tip_text(
                                         text,
@@ -365,6 +366,24 @@ fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sende
                     let _ = map.save(&tracks_dir);
                 }
 
+                // ── Lap summary tip ───────────────────────────────────────
+                if let Some(lap_time) = lap.lap_time_ms {
+                    let lap_str = format_lap_time(lap_time);
+                    let delta_str = reference_lap.as_ref()
+                        .and_then(|r| r.lap_time_ms)
+                        .map(|ref_ms| {
+                            let delta_s = (lap_time as f32 - ref_ms as f32) / 1000.0;
+                            format!(" — {:+.1}s", delta_s)
+                        })
+                        .unwrap_or_default();
+                    let focus_str = pending_corner_tips.iter()
+                        .max_by_key(|(_, (_, pri))| *pri)
+                        .map(|(&id, _)| format!(" Focus turn {}.", id))
+                        .unwrap_or_default();
+                    let summary = format!("{}{}.{}", lap_str, delta_str, focus_str);
+                    send_tip_text(summary, None, speaker.as_deref(), &tx, &mut last_tip_at, cooldown);
+                }
+
                 // Update reference lap according to the configured strategy.
                 if let Some(ref map) = track_map {
                     let new_ref = ReferenceLap::from_lap(&lap, map, "");
@@ -408,6 +427,12 @@ fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sende
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+fn format_lap_time(ms: u32) -> String {
+    let mins = ms / 60_000;
+    let secs = (ms % 60_000) as f32 / 1000.0;
+    format!("{}:{:06.3}", mins, secs)
+}
 
 /// Send a pre-rephrased tip text directly (used in Coach/anticipatory mode).
 fn send_tip_text(
