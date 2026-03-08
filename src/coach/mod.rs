@@ -294,8 +294,9 @@ fn coach_loop(config: CoachConfig, buffer: Arc<TelemetryBuffer>, tx: mpsc::Sende
                         // Exited a corner — run post-corner analysis.
                         let ref_perf = reference_lap.as_ref().and_then(|r| r.corner(prev));
                         if let Some(c) = map.corner_by_id(prev).cloned() {
+                            let track_len = track_map.as_ref().map(|m| m.track_length_m).unwrap_or(3000.0);
                             let tips =
-                                analyzer.analyze_corner(&c, &corner_samples, ref_perf);
+                                analyzer.analyze_corner(&c, &corner_samples, ref_perf, track_len);
                             for tip in tips {
                                 maybe_send_tip(
                                     rephraser.as_ref(),

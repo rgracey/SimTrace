@@ -41,17 +41,21 @@ const SAW_THRESHOLD_PER_SEC: f32 = 3.0;
 const SAW_MIN_STEER_DEG: f32 = 5.0;
 
 /// Apex speed must differ by at least this much to trigger a tip (kph).
-const APEX_SPEED_THRESHOLD_KPH: f32 = 5.0;
-/// Brake point delta (track pos fraction) to trigger early/late braking tip.
-const BRAKE_EARLY_THRESHOLD: f32 = 0.01;
-const BRAKE_LATE_THRESHOLD: f32 = 0.015;
+const APEX_SPEED_THRESHOLD_KPH: f32 = 8.0;
+/// Minimum brake-point delta in metres to trigger an early/late braking tip.
+const BRAKE_DELTA_MIN_M: f32 = 5.0;
 /// Entry speed above reference by this to trigger "too late" tip (kph).
 const ENTRY_SPEED_HOT_KPH: f32 = 10.0;
-/// Throttle point delta (track pos fraction) to trigger throttle tip.
-const THROTTLE_LATE_THRESHOLD: f32 = 0.015;
-const THROTTLE_EARLY_THRESHOLD: f32 = 0.01;
+/// Minimum throttle-point delta in metres to trigger a tip.
+const THROTTLE_DELTA_MIN_M: f32 = 5.0;
 /// TC activations during a corner exit to flag early throttle.
 const TC_CORNER_THRESHOLD: u32 = 2;
+
+/// Round a distance in metres to the nearest 10 m (minimum 10 m).
+/// Turns "37m" into "40m" — more natural for a driver to act on.
+fn round_m(m: f32) -> u32 {
+    ((m / 10.0).round() as u32).max(1) * 10
+}
 
 // ── Rolling event window ──────────────────────────────────────────────────────
 
@@ -263,6 +267,7 @@ impl Analyzer {
         corner: &DetectedCorner,
         corner_samples: &[LapSample],
         reference: Option<&CornerPerf>,
+        track_length_m: f32,
     ) -> Vec<StructuredTip> {
         let mut tips = Vec::new();
 
@@ -274,6 +279,10 @@ impl Analyzer {
             return tips;
         }
 
+        // Track whether a root-cause tip already explains poor apex speed,
+        // so we don't double-tip "slow apex" as a separate item.
+        let mut brake_or_throttle_tip_fired = false;
+
         // ── Apex speed ───────────────────────────────────────────────────────
         let apex_speed = corner_samples
             .iter()
@@ -281,35 +290,6 @@ impl Analyzer {
             .fold(f32::INFINITY, f32::min);
 
         let apex_delta = ref_perf.apex_speed_kph - apex_speed;
-        if apex_delta > APEX_SPEED_THRESHOLD_KPH {
-            tips.push(StructuredTip::new(
-                CoachEvent::SlowApex {
-                    corner_id: corner.id,
-                    delta_kph: apex_delta,
-                },
-                format!(
-                    "Corner {}: apex speed is {:.0} kph below your reference — \
-                     you may be turning in too late or running wide.",
-                    corner.id, apex_delta
-                ),
-                4,
-                Some(corner.id),
-            ));
-        } else if apex_speed - ref_perf.apex_speed_kph > APEX_SPEED_THRESHOLD_KPH {
-            let gain = apex_speed - ref_perf.apex_speed_kph;
-            tips.push(StructuredTip::new(
-                CoachEvent::ImprovedApexSpeed {
-                    corner_id: corner.id,
-                    delta_kph: gain,
-                },
-                format!(
-                    "Corner {}: apex speed is {:.0} kph faster than your reference — good.",
-                    corner.id, gain
-                ),
-                1,
-                Some(corner.id),
-            ));
-        }
 
         // ── Brake point ──────────────────────────────────────────────────────
         let actual_brake_point = corner_samples
@@ -319,41 +299,38 @@ impl Analyzer {
 
         if let Some(actual_bp) = actual_brake_point {
             let delta = actual_bp - ref_perf.brake_point;
+            let delta_m = delta * track_length_m;
 
-            if delta > BRAKE_EARLY_THRESHOLD {
-                // Positive delta → braking before the reference point.
-                let pct = delta * 100.0;
-                let est_loss_ms = pct * 200.0; // rough heuristic
+            if delta_m > BRAKE_DELTA_MIN_M {
+                // Braking before the reference point.
+                brake_or_throttle_tip_fired = true;
                 tips.push(StructuredTip::new(
                     CoachEvent::BrakingTooEarly {
                         corner_id: corner.id,
                         delta_track_pos: delta,
-                        estimated_time_lost_ms: est_loss_ms,
+                        estimated_time_lost_ms: delta_m * 10.0,
                     },
                     format!(
-                        "Corner {}: you're braking {:.1}% of the track earlier than your \
-                         reference — committing later could recover ~{:.0} ms.",
-                        corner.id,
-                        pct,
-                        est_loss_ms
+                        "Corner {}: brake {}m later.",
+                        corner.id, round_m(delta_m)
                     ),
                     3,
                     Some(corner.id),
                 ));
-            } else if delta < -BRAKE_LATE_THRESHOLD {
+            } else if delta_m < -BRAKE_DELTA_MIN_M {
                 // Braking after the reference — hot entry.
                 let entry_speed = corner_samples.first().map(|s| s.speed_kph).unwrap_or(0.0);
                 let speed_delta = entry_speed - ref_perf.entry_speed_kph;
                 if speed_delta > ENTRY_SPEED_HOT_KPH {
+                    brake_or_throttle_tip_fired = true;
                     tips.push(StructuredTip::new(
                         CoachEvent::BrakingTooLate {
                             corner_id: corner.id,
                             entry_speed_delta_kph: speed_delta,
                         },
                         format!(
-                            "Corner {}: you entered {:.0} kph faster than your reference — \
-                             check if you're carrying too much speed and running wide.",
-                            corner.id, speed_delta
+                            "Corner {}: entry is {:.0} kph too fast — move the brake point {}m earlier.",
+                            corner.id, speed_delta, round_m(-delta_m)
                         ),
                         4,
                         Some(corner.id),
@@ -370,39 +347,56 @@ impl Analyzer {
 
         if let Some(actual_tp) = actual_throttle_point {
             let delta = actual_tp - ref_perf.throttle_point;
+            let delta_m = delta * track_length_m;
 
-            if delta > THROTTLE_LATE_THRESHOLD {
+            if delta_m > THROTTLE_DELTA_MIN_M {
+                brake_or_throttle_tip_fired = true;
                 tips.push(StructuredTip::new(
                     CoachEvent::ThrottleTooLate {
                         corner_id: corner.id,
                         delta_track_pos: delta,
                     },
                     format!(
-                        "Corner {}: throttle is going on later than your reference — \
-                         trust the grip and commit to power earlier on exit.",
-                        corner.id
+                        "Corner {}: get on the power {}m earlier on exit.",
+                        corner.id, round_m(delta_m)
                     ),
                     3,
                     Some(corner.id),
                 ));
-            } else if delta < -THROTTLE_EARLY_THRESHOLD {
+            } else if delta_m < -THROTTLE_DELTA_MIN_M {
                 let tc_hits = corner_samples
                     .windows(2)
                     .filter(|w| !w[0].tc_active && w[1].tc_active)
                     .count() as u32;
                 if tc_hits > TC_CORNER_THRESHOLD {
+                    brake_or_throttle_tip_fired = true;
                     tips.push(StructuredTip::new(
                         CoachEvent::ThrottleTooEarly { corner_id: corner.id },
                         format!(
-                            "Corner {}: throttle is on early and TC is firing {} times — \
-                             wait for the car to rotate before adding power.",
-                            corner.id, tc_hits
+                            "Corner {}: throttle is {}m too early — wait for the car to settle, TC fired {} times.",
+                            corner.id, round_m(-delta_m), tc_hits
                         ),
                         3,
                         Some(corner.id),
                     ));
                 }
             }
+        }
+
+        // ── Apex speed — only when no root-cause tip already explains it ─────
+        if !brake_or_throttle_tip_fired && apex_delta > APEX_SPEED_THRESHOLD_KPH {
+            tips.push(StructuredTip::new(
+                CoachEvent::SlowApex {
+                    corner_id: corner.id,
+                    delta_kph: apex_delta,
+                },
+                format!(
+                    "Corner {}: you're {:.0} kph slower at the apex than your reference.",
+                    corner.id, apex_delta
+                ),
+                4,
+                Some(corner.id),
+            ));
         }
 
         tips

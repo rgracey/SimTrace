@@ -9,30 +9,59 @@
 //! (same behaviour as `PassthroughRephraser`).
 
 #[cfg(feature = "coach-llm")]
-use std::num::NonZeroU32;
-#[cfg(feature = "coach-llm")]
-use std::path::Path;
-#[cfg(feature = "coach-llm")]
 use super::events::StructuredTip;
 #[cfg(feature = "coach-llm")]
 use super::rephraser::Rephraser;
+#[cfg(feature = "coach-llm")]
+use std::num::NonZeroU32;
+#[cfg(feature = "coach-llm")]
+use std::path::Path;
 
 // ── Prompt ────────────────────────────────────────────────────────────────────
 
 #[cfg(feature = "coach-llm")]
-const SYSTEM_PROMPT: &str = "You are an AI sim-racing coach. \
-Rephrase the following coaching tip to sound natural and conversational. \
-Keep all numeric facts and technical advice exactly correct. \
-Reply with ONLY the rephrased tip — no preamble, no quotes, no explanation. \
-Maximum two short sentences.";
+const SYSTEM_PROMPT: &str = "Rewrite the input as a one-sentence race engineer radio call. \
+Keep every number exactly as given. Reply with only the sentence — nothing else.";
+
+/// Few-shot examples that show the model exactly what style is expected.
+#[cfg(feature = "coach-llm")]
+const EXAMPLES: &[(&str, &str)] = &[
+    (
+        "Corner 3: brake 30m later.",
+        "Brake 30 metres later into turn 3.",
+    ),
+    (
+        "Corner 5: get on the power 20m earlier on exit.",
+        "Throttle up 20 metres earlier out of turn 5.",
+    ),
+    (
+        "Corner 7: entry is 14 kph too fast — move the brake point 20m earlier.",
+        "You're 14 kph too hot into turn 7 — move the brake point back 20 metres.",
+    ),
+    (
+        "ABS has activated 6 times in 15 seconds — you're arriving at corners with too much brake pressure.",
+        "Ease the brake pressure — ABS has fired 6 times in the last 15 seconds.",
+    ),
+    (
+        "Corner 2: you're 9 kph slower at the apex than your reference.",
+        "You're losing 9 kph at the apex of turn 2 — carry more speed through the middle.",
+    ),
+];
 
 #[cfg(feature = "coach-llm")]
 fn build_prompt(fact: &str) -> String {
-    format!(
-        "<|im_start|>system\n{SYSTEM_PROMPT}<|im_end|>\n\
-         <|im_start|>user\n{fact}<|im_end|>\n\
+    let mut prompt = format!("<|im_start|>system\n{SYSTEM_PROMPT}<|im_end|>\n");
+    for (user, assistant) in EXAMPLES {
+        prompt.push_str(&format!(
+            "<|im_start|>user\n{user}<|im_end|>\n\
+             <|im_start|>assistant\n{assistant}<|im_end|>\n"
+        ));
+    }
+    prompt.push_str(&format!(
+        "<|im_start|>user\n{fact}<|im_end|>\n\
          <|im_start|>assistant\n"
-    )
+    ));
+    prompt
 }
 
 // ── LlmRephraser ─────────────────────────────────────────────────────────────
@@ -68,9 +97,9 @@ impl LlmRephraser {
         Ok(Self {
             model,
             _backend: backend,
-            n_ctx: NonZeroU32::new(512).unwrap(),
-            max_new_tokens: 120,
-            temperature: 0.7,
+            n_ctx: NonZeroU32::new(768).unwrap(),
+            max_new_tokens: 60,
+            temperature: 0.3,
         })
     }
 
@@ -107,7 +136,9 @@ impl LlmRephraser {
             if self.model.is_eog_token(token) {
                 break;
             }
-            let piece = self.model.token_to_piece(token, &mut decoder, false, None)?;
+            let piece = self
+                .model
+                .token_to_piece(token, &mut decoder, false, None)?;
             output.push_str(&piece);
 
             // Feed the new token back for the next step.
