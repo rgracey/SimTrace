@@ -51,7 +51,11 @@ pub enum CoachEvent {
 
     // ── Mechanical ───────────────────────────────────────────────────────────
     /// Driver in a different gear than reference at the apex.
-    WrongGearAtApex { corner_id: u8, actual_gear: i32, ref_gear: i32 },
+    WrongGearAtApex {
+        corner_id: u8,
+        actual_gear: i32,
+        ref_gear: i32,
+    },
 
     // ── Macro ────────────────────────────────────────────────────────────────
     /// No throttle, no brake for too long at racing speed.

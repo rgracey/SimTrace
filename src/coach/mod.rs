@@ -232,7 +232,8 @@ fn coach_loop(
                         );
                         // Also try to load a saved centerline.
                         if centerline.is_none() {
-                            centerline = centerline::Centerline::load(&tracks_dir, &map.file_stem());
+                            centerline =
+                                centerline::Centerline::load(&tracks_dir, &map.file_stem());
                             if centerline.is_some() {
                                 info!("Coach: loaded centerline");
                             }
@@ -455,7 +456,8 @@ fn coach_loop(
                                     } else {
                                         base_text
                                     };
-                                    pending_corner_tips.insert(prev, (text.clone(), priority, time_loss));
+                                    pending_corner_tips
+                                        .insert(prev, (text.clone(), priority, time_loss));
                                     if first_time {
                                         send_tip_text(
                                             text,
@@ -511,8 +513,7 @@ fn coach_loop(
                 // At 60 Hz a 30-second partial lap start yields ~1 800 samples,
                 // so require at least 2 000 to rule those out.
                 const MIN_DETECTION_SAMPLES: usize = 2000;
-                let current_corner_count =
-                    track_map.as_ref().map(|m| m.corners.len()).unwrap_or(0);
+                let current_corner_count = track_map.as_ref().map(|m| m.corners.len()).unwrap_or(0);
 
                 if lap.samples.len() >= MIN_DETECTION_SAMPLES {
                     // Update centerline (build or blend).
@@ -534,8 +535,7 @@ fn coach_loop(
                     // Build or refine track map.
                     let want_detect = track_map.is_none() || current_corner_count < 4;
                     if want_detect {
-                        let corners =
-                            CornerDetector::detect(centerline.as_ref(), &lap.samples);
+                        let corners = CornerDetector::detect(centerline.as_ref(), &lap.samples);
                         if corners.len() > current_corner_count {
                             info!(
                                 "Coach: detected {} corners on '{}' ({} samples)",
@@ -550,11 +550,8 @@ fn coach_loop(
                                 last_apex_speed.clear();
                                 corner_tip_laps.clear();
                             }
-                            let map = TrackMap::new(
-                                lap.track_name.clone(),
-                                lap.track_length_m,
-                                corners,
-                            );
+                            let map =
+                                TrackMap::new(lap.track_name.clone(), lap.track_length_m, corners);
                             if let Some(ref cl) = centerline {
                                 let _ = cl.save(&tracks_dir, &map.file_stem());
                             }
@@ -659,10 +656,7 @@ fn coach_loop(
                     .as_ref()
                     .map(|m| m.corners.clone())
                     .unwrap_or_default(),
-                map_track_length_m: track_map
-                    .as_ref()
-                    .map(|m| m.track_length_m)
-                    .unwrap_or(0.0),
+                map_track_length_m: track_map.as_ref().map(|m| m.track_length_m).unwrap_or(0.0),
             };
             // Best-effort send — if the UI thread is gone, we'll exit next iteration.
             if tx.send(CoachMsg::Status(status)).is_err() {

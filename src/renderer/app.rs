@@ -770,17 +770,16 @@ impl eframe::App for SimTraceApp {
                         .frame(egui::Frame::NONE)
                         .show(ctx, |ui| {
                             let size = ui.available_size();
-                            let closed =
-                                crate::renderer::track_map_panel::TrackMapPanel::new(
-                                    &centerline,
-                                    &corners,
-                                    car_track_pos,
-                                    ref_samples.as_deref(),
-                                    laps_averaged,
-                                    has_centerline,
-                                    coach_enabled,
-                                )
-                                .show(ui, size);
+                            let closed = crate::renderer::track_map_panel::TrackMapPanel::new(
+                                &centerline,
+                                &corners,
+                                car_track_pos,
+                                ref_samples.as_deref(),
+                                laps_averaged,
+                                has_centerline,
+                                coach_enabled,
+                            )
+                            .show(ui, size);
                             if closed {
                                 close_arc.store(true, std::sync::atomic::Ordering::Relaxed);
                             }

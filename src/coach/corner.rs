@@ -162,8 +162,7 @@ fn detect_by_centerline(cl: &Centerline, sorted: &[LapSample]) -> Vec<DetectedCo
         let zone_pts = &pts[s..=e];
 
         // Direction from sign of mean curvature.
-        let mean_k: f32 =
-            zone_pts.iter().map(|p| p.curvature).sum::<f32>() / zone_pts.len() as f32;
+        let mean_k: f32 = zone_pts.iter().map(|p| p.curvature).sum::<f32>() / zone_pts.len() as f32;
         let direction = if mean_k >= 0.0 {
             CornerDirection::Left
         } else {

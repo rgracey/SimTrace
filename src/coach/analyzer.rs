@@ -105,16 +105,24 @@ fn estimate_time_loss_s(
 
     fn seg_time(dist_m: f32, v1_kph: f32, v2_kph: f32) -> f32 {
         let avg_ms = ((v1_kph + v2_kph) / 2.0) / 3.6;
-        if avg_ms > 0.1 { dist_m / avg_ms } else { 0.0 }
+        if avg_ms > 0.1 {
+            dist_m / avg_ms
+        } else {
+            0.0
+        }
     }
 
     let ref_time = seg_time(apex_m, ref_perf.entry_speed_kph, ref_perf.apex_speed_kph)
         + seg_time(exit_m, ref_perf.apex_speed_kph, ref_perf.exit_speed_kph);
-    let actual_time = seg_time(apex_m, actual_entry, actual_apex)
-        + seg_time(exit_m, actual_apex, actual_exit);
+    let actual_time =
+        seg_time(apex_m, actual_entry, actual_apex) + seg_time(exit_m, actual_apex, actual_exit);
 
     let loss = actual_time - ref_time;
-    if loss > 0.02 { Some(loss.min(3.0)) } else { None }
+    if loss > 0.02 {
+        Some(loss.min(3.0))
+    } else {
+        None
+    }
 }
 
 // ── Analyzer ─────────────────────────────────────────────────────────────────
@@ -198,7 +206,9 @@ impl Analyzer {
                 let rps = self.steering_reversals.len() as f32;
                 if rps > SAW_THRESHOLD_PER_SEC {
                     tips.push(StructuredTip::new(
-                        CoachEvent::SteeringSaw { reversals_per_sec: rps },
+                        CoachEvent::SteeringSaw {
+                            reversals_per_sec: rps,
+                        },
                         "Steering corrections are causing instability".to_string(),
                         2,
                         None,
@@ -248,8 +258,8 @@ impl Analyzer {
         let apex_speed = apex_sample.map(|s| s.speed_kph).unwrap_or(f32::INFINITY);
         let actual_apex_pos = apex_sample.map(|s| s.track_pos).unwrap_or(corner.apex);
 
-        let time_loss = reference
-            .and_then(|r| estimate_time_loss_s(r, corner, corner_samples, track_length_m));
+        let time_loss =
+            reference.and_then(|r| estimate_time_loss_s(r, corner, corner_samples, track_length_m));
 
         // ── Early apex (turning in too early) ────────────────────────────────
         // Speed minimum well before the geometric apex → will run wide on exit.
@@ -257,9 +267,14 @@ impl Analyzer {
         if early_m > EARLY_APEX_MIN_M {
             tips.push(
                 StructuredTip::new(
-                    CoachEvent::EarlyApex { corner_id: t, early_m },
-                    format!("Turn {t}: you're turning in too early ({dir}) — turn in {d} later.",
-                        d = dist_str(early_m)),
+                    CoachEvent::EarlyApex {
+                        corner_id: t,
+                        early_m,
+                    },
+                    format!(
+                        "Turn {t}: you're turning in too early ({dir}) — turn in {d} later.",
+                        d = dist_str(early_m)
+                    ),
                     4,
                     Some(t),
                 )
@@ -348,7 +363,10 @@ impl Analyzer {
             .count() as u32;
         if abs_hits > 0 && abs_hits > ref_perf.abs_activations {
             tips.push(StructuredTip::new(
-                CoachEvent::ExcessiveBrakePressure { corner_id: t, abs_count: abs_hits },
+                CoachEvent::ExcessiveBrakePressure {
+                    corner_id: t,
+                    abs_count: abs_hits,
+                },
                 format!("Turn {t}: reduce peak brake pressure ({dir})."),
                 3,
                 Some(t),
@@ -359,9 +377,15 @@ impl Analyzer {
         let apex_gear = apex_sample.map(|s| s.gear).unwrap_or(0);
         if apex_gear > 0 && ref_perf.gear > 0 && apex_gear != ref_perf.gear {
             let gear_tip = if apex_gear > ref_perf.gear {
-                format!("Turn {t}: take the corner in gear {g} ({dir}).", g = ref_perf.gear)
+                format!(
+                    "Turn {t}: take the corner in gear {g} ({dir}).",
+                    g = ref_perf.gear
+                )
             } else {
-                format!("Turn {t}: try gear {g} at the apex ({dir}) — you're over-revving.", g = ref_perf.gear)
+                format!(
+                    "Turn {t}: try gear {g} at the apex ({dir}) — you're over-revving.",
+                    g = ref_perf.gear
+                )
             };
             tips.push(
                 StructuredTip::new(
@@ -444,8 +468,10 @@ impl Analyzer {
                             corner_id: t,
                             delta_track_pos: delta_m / track_length_m,
                         },
-                        format!("Turn {t}: apply throttle {d} earlier on exit ({dir}).",
-                            d = dist_str(delta_m)),
+                        format!(
+                            "Turn {t}: apply throttle {d} earlier on exit ({dir}).",
+                            d = dist_str(delta_m)
+                        ),
                         3,
                         Some(t),
                     )
@@ -523,7 +549,10 @@ impl Analyzer {
         if !apex_explained && apex_delta > APEX_SPEED_THRESHOLD_KPH {
             tips.push(
                 StructuredTip::new(
-                    CoachEvent::SlowApex { corner_id: t, delta_kph: apex_delta },
+                    CoachEvent::SlowApex {
+                        corner_id: t,
+                        delta_kph: apex_delta,
+                    },
                     format!("Turn {t}: carry more speed through the corner ({dir})."),
                     4,
                     Some(t),

@@ -120,7 +120,11 @@ impl<'a> TrackMapPanel<'a> {
 
         // ── 1. Centerline ────────────────────────────────────────────────────
         let line_col = Color32::from_rgba_premultiplied(160, 160, 160, 100);
-        let pts: Vec<Pos2> = self.centerline.iter().map(|p| to_screen(p.x, p.z)).collect();
+        let pts: Vec<Pos2> = self
+            .centerline
+            .iter()
+            .map(|p| to_screen(p.x, p.z))
+            .collect();
         if pts.len() >= 2 {
             painter.add(egui::Shape::line(pts, Stroke::new(1.5, line_col)));
         }

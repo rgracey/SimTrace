@@ -198,23 +198,13 @@ fn path_length_from_points(pts: &[CenterlinePoint]) -> f32 {
 
 /// Compute curvature from resampled (x, z) tuples.
 fn compute_curvature(pts: &[(f32, f32)], track_length_m: f32) -> Vec<f32> {
-    let raw = menger_curvature(
-        pts.len(),
-        |i| pts[i].0,
-        |i| pts[i].1,
-        track_length_m,
-    );
+    let raw = menger_curvature(pts.len(), |i| pts[i].0, |i| pts[i].1, track_length_m);
     rolling_avg(&raw, SMOOTH_WIN)
 }
 
 /// Compute curvature from `CenterlinePoint` slice.
 fn compute_curvature_from_points(pts: &[CenterlinePoint], track_length_m: f32) -> Vec<f32> {
-    let raw = menger_curvature(
-        pts.len(),
-        |i| pts[i].x,
-        |i| pts[i].z,
-        track_length_m,
-    );
+    let raw = menger_curvature(pts.len(), |i| pts[i].x, |i| pts[i].z, track_length_m);
     rolling_avg(&raw, SMOOTH_WIN)
 }
 
