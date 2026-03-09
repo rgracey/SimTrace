@@ -15,6 +15,9 @@ const POLL_RATE_HZ: u64 = 60;
 /// Minimum overlay dimensions — keeps the layout from collapsing.
 const MIN_WIDTH: f32 = 300.0;
 const MIN_HEIGHT: f32 = 130.0;
+/// Track position strip height and gap below the main content.
+const STRIP_H: f32 = 10.0;
+const STRIP_GAP: f32 = 3.0;
 
 // ── Background poller ─────────────────────────────────────────────────────────
 
@@ -56,6 +59,8 @@ pub struct SimTraceApp {
     save_toast: Option<std::time::Instant>,
     /// Colors pre-parsed from `settings.colors`; re-derived when config changes them.
     parsed_colors: ParsedColors,
+    /// Lap boundary detection and per-lap telemetry for comparison.
+    lap_store: crate::core::LapStore,
 }
 
 impl SimTraceApp {
@@ -87,6 +92,7 @@ impl SimTraceApp {
             active_plugin,
             save_toast: None,
             parsed_colors,
+            lap_store: crate::core::LapStore::new(),
         }
     }
 
@@ -135,6 +141,7 @@ impl SimTraceApp {
             .map(|p| p.get_config().max_steering_angle)
             .unwrap_or(450.0);
         self.active_plugin = plugin;
+        self.lap_store.clear();
     }
 }
 
@@ -184,6 +191,7 @@ impl eframe::App for SimTraceApp {
         if self.running {
             if let Some(pt) = self.buffer.latest() {
                 self.current_steering = pt.telemetry.steering_angle;
+                self.lap_store.push(&pt);
             }
         }
         // Clone the Arc so the closure below can take &mut self freely.
@@ -192,6 +200,8 @@ impl eframe::App for SimTraceApp {
         } else {
             None
         };
+        // Clone the reference lap so the closure can read it without borrowing self.
+        let reference_lap = self.lap_store.reference_lap.clone();
 
         ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(
             MIN_WIDTH, MIN_HEIGHT,
@@ -439,6 +449,7 @@ impl eframe::App for SimTraceApp {
                                 self.max_steering_angle,
                                 a,
                                 cap_r,
+                                reference_lap.as_deref(),
                             );
                         } else {
                             let font_size = (content_rect.height() * 0.28).clamp(14.0, 42.0);
@@ -513,6 +524,7 @@ impl eframe::App for SimTraceApp {
                             &mut self.running,
                             &mut self.save_toast,
                             buffer.as_ref(),
+                            &mut self.lap_store,
                         );
                     });
                     // Re-derive parsed colors in case the color pickers changed them.
@@ -582,6 +594,67 @@ impl eframe::App for SimTraceApp {
                 let _ = self.settings.save_to_config_path();
             }
         }
+
+        // ── Lap comparison viewport ───────────────────────────────────────────
+        if self.settings.graph.lap_comparison_open {
+            let reference = self.lap_store.reference_lap.clone();
+            let current = self.lap_store.current_lap().to_vec();
+            let current_track_pos = self
+                .lap_store
+                .current_lap()
+                .last()
+                .map(|p| p.track_position)
+                .unwrap_or(0.0);
+            let colors = self.parsed_colors.clone();
+            let opacity = self.settings.overlay.opacity;
+
+            let close_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let close_arc = close_flag.clone();
+
+            ctx.show_viewport_immediate(
+                egui::ViewportId::from_hash_of("lap_comparison"),
+                egui::ViewportBuilder::default()
+                    .with_title("Lap Comparison")
+                    .with_inner_size([380.0, 260.0])
+                    .with_transparent(true)
+                    .with_decorations(false)
+                    .with_window_level(egui::WindowLevel::AlwaysOnTop),
+                |ctx, _class| {
+                    egui::CentralPanel::default()
+                        .frame(egui::Frame::NONE)
+                        .show(ctx, |ui| {
+                            let size = ui.available_size();
+                            let closed = crate::renderer::LapComparison::new(
+                                reference.as_ref(),
+                                &current,
+                                current_track_pos,
+                                &colors,
+                                opacity,
+                            )
+                            .show(ui, size);
+                            if closed {
+                                close_arc.store(true, std::sync::atomic::Ordering::Relaxed);
+                            }
+                        });
+                    let vp = ctx.viewport_rect();
+                    let close_center = egui::Pos2::new(vp.max.x - 14.0, vp.min.y + 12.0);
+                    if ctx.input(|i| {
+                        let pressed = i.pointer.button_pressed(egui::PointerButton::Primary);
+                        let on_close = i.pointer.interact_pos().is_some_and(|p| {
+                            (p.x - close_center.x).hypot(p.y - close_center.y) < 12.0
+                        });
+                        pressed && !on_close
+                    }) {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                    }
+                },
+            );
+
+            if close_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                self.settings.graph.lap_comparison_open = false;
+                let _ = self.settings.save_to_config_path();
+            }
+        }
     }
 }
 
@@ -597,6 +670,7 @@ fn draw_telemetry(
     max_steering_angle: f32,
     a: u8,
     cap_r: f32,
+    reference_lap: Option<&[crate::core::lap_store::LapPoint]>,
 ) {
     let opacity = settings.overlay.opacity;
     let available = ui.available_rect_before_wrap();
@@ -606,21 +680,33 @@ fn draw_telemetry(
     let brake = latest.as_ref().map(|p| p.telemetry.brake).unwrap_or(0.0);
     let clutch = latest.as_ref().map(|p| p.telemetry.clutch).unwrap_or(0.0);
     let abs_on = latest.as_ref().map(|p| p.abs_active).unwrap_or(false);
+    let tc_on = latest
+        .as_ref()
+        .map(|p| p.telemetry.tc_active)
+        .unwrap_or(false);
     let gear = latest.as_ref().map(|p| p.telemetry.gear).unwrap_or(0);
     let speed_ms = latest.as_ref().map(|p| p.telemetry.speed).unwrap_or(0.0);
 
     let bar_gap = 4.0_f32;
     let gap = 8.0_f32;
 
+    // Reserve space for track strip at bottom when enabled.
+    let strip_total = if settings.graph.show_track_strip {
+        STRIP_H + STRIP_GAP
+    } else {
+        0.0
+    };
+    let content_h = available.height() - strip_total;
+
     // Wheel column: height-derived but capped so it never crowds the graph
     let wheel_col_w = ((cap_r - 2.0) * 2.0).min(available.width() * 0.30);
 
     // Bar width scales with height so bars stay proportional when the widget is short
-    let bar_w = (available.height() * 0.28).clamp(12.0, 22.0);
+    let bar_w = (content_h * 0.28).clamp(12.0, 22.0);
     let bars_col_w = bar_w * 3.0 + bar_gap * 2.0;
 
     let graph_w = (available.width() - bars_col_w - wheel_col_w - gap * 2.0).max(40.0);
-    let graph_h = available.height();
+    let graph_h = content_h;
 
     // No data arriving? Show overlay on graph area.
     let is_waiting = latest
@@ -635,13 +721,11 @@ fn draw_telemetry(
             .show(ui, egui::vec2(graph_w, graph_h));
 
         // Gap between graph and bars
-        ui.allocate_exact_size(egui::vec2(gap, available.height()), egui::Sense::hover());
+        ui.allocate_exact_size(egui::vec2(gap, content_h), egui::Sense::hover());
 
         // ── Pedal bars ───────────────────────────────────────────────────────
-        let (bars_rect, _) = ui.allocate_exact_size(
-            egui::vec2(bars_col_w, available.height()),
-            egui::Sense::hover(),
-        );
+        let (bars_rect, _) =
+            ui.allocate_exact_size(egui::vec2(bars_col_w, content_h), egui::Sense::hover());
         let p = ui.painter();
 
         let is_braking = brake > 0.01;
@@ -653,10 +737,16 @@ fn draw_telemetry(
             _ => colors.brake,
         };
 
+        let throttle_color = if tc_on && settings.graph.show_tc {
+            colors.tc_active
+        } else {
+            colors.throttle
+        };
+
         let specs: &[(f32, egui::Color32)] = &[
             (clutch, colors.clutch),
             (brake, brake_color),
-            (throttle, colors.throttle),
+            (throttle, throttle_color),
         ];
 
         let label_h = 16.0_f32;
@@ -722,13 +812,11 @@ fn draw_telemetry(
         }
 
         // Gap between bars and steering wheel
-        ui.allocate_exact_size(egui::vec2(gap, available.height()), egui::Sense::hover());
+        ui.allocate_exact_size(egui::vec2(gap, content_h), egui::Sense::hover());
 
         // ── Steering wheel ──────────────────────────────────────────────────
-        let (wheel_rect, _) = ui.allocate_exact_size(
-            egui::vec2(wheel_col_w, available.height()),
-            egui::Sense::hover(),
-        );
+        let (wheel_rect, _) =
+            ui.allocate_exact_size(egui::vec2(wheel_col_w, content_h), egui::Sense::hover());
         // Center the wheel in the cap — vertically centred, horizontally at cap centre
         let center = wheel_rect.center();
         // Fit inside the cap with margin for stroke (thickness ≈ radius * 0.28)
@@ -796,6 +884,28 @@ fn draw_telemetry(
         );
     });
 
+    // ── Track position strip ─────────────────────────────────────────────────
+    if settings.graph.show_track_strip {
+        let current_track_pos = latest
+            .as_ref()
+            .map(|p| p.telemetry.track_position)
+            .unwrap_or(0.0);
+        let strip_rect = egui::Rect::from_min_size(
+            egui::pos2(available.min.x, available.max.y - STRIP_H),
+            egui::vec2(available.width(), STRIP_H),
+        );
+        draw_track_strip(
+            ui.painter(),
+            strip_rect,
+            buffer,
+            current_track_pos,
+            &settings.graph,
+            colors,
+            a,
+            reference_lap,
+        );
+    }
+
     if is_waiting {
         ui.painter().text(
             graph_rect.center(),
@@ -807,6 +917,151 @@ fn draw_telemetry(
     }
 }
 
+// ── Track position strip ──────────────────────────────────────────────────────
+
+#[allow(clippy::too_many_arguments)]
+fn draw_track_strip(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    buffer: Option<&Arc<crate::core::TelemetryBuffer>>,
+    current_pos: f32,
+    settings: &crate::config::GraphSettings,
+    colors: &ParsedColors,
+    a: u8,
+    reference_lap: Option<&[crate::core::lap_store::LapPoint]>,
+) {
+    // Background
+    painter.rect_filled(
+        rect,
+        2.0,
+        egui::Color32::from_rgba_unmultiplied(8, 8, 8, (a as f32 * 0.9) as u8),
+    );
+    painter.rect_stroke(
+        rect,
+        2.0,
+        egui::Stroke::new(0.5, with_alpha(BORDER, a)),
+        egui::StrokeKind::Middle,
+    );
+
+    // ── Reference lap ghost ─────────────────────────────────────────────────
+    // Bin reference points by pixel column and take the max brake/throttle
+    // per column, which avoids aliasing when many points map to the same pixel.
+    if let Some(ref_lap) = reference_lap {
+        let w = rect.width().max(1.0) as usize;
+        let mut brake_bins = vec![0.0_f32; w];
+        let mut throttle_bins = vec![0.0_f32; w];
+
+        for pt in ref_lap {
+            let bin = ((pt.track_position.clamp(0.0, 1.0) * w as f32) as usize).min(w - 1);
+            brake_bins[bin] = brake_bins[bin].max(pt.brake);
+            throttle_bins[bin] = throttle_bins[bin].max(pt.throttle);
+        }
+
+        let inner_h = rect.height() - 2.0;
+        let ghost_opacity = a as f32 * 0.38; // dim — reference sits behind live data
+
+        let [br, bg, bb, _] = colors.brake.to_array();
+        let [tr, tg, tb, _] = colors.throttle.to_array();
+
+        for col in 0..w {
+            let x = rect.min.x + col as f32 + 0.5;
+
+            // Brake: from bottom up
+            if brake_bins[col] > 0.02 {
+                let h = (brake_bins[col] * inner_h).max(1.0);
+                let alpha = (ghost_opacity * brake_bins[col]).min(255.0) as u8;
+                painter.line_segment(
+                    [
+                        egui::pos2(x, rect.max.y - 1.0),
+                        egui::pos2(x, rect.max.y - 1.0 - h),
+                    ],
+                    egui::Stroke::new(
+                        1.0,
+                        egui::Color32::from_rgba_unmultiplied(br, bg, bb, alpha),
+                    ),
+                );
+            }
+
+            // Throttle: from top down
+            if throttle_bins[col] > 0.02 {
+                let h = (throttle_bins[col] * inner_h).max(1.0);
+                let alpha = (ghost_opacity * throttle_bins[col]).min(255.0) as u8;
+                painter.line_segment(
+                    [
+                        egui::pos2(x, rect.min.y + 1.0),
+                        egui::pos2(x, rect.min.y + 1.0 + h),
+                    ],
+                    egui::Stroke::new(
+                        1.0,
+                        egui::Color32::from_rgba_unmultiplied(tr, tg, tb, alpha),
+                    ),
+                );
+            }
+        }
+    }
+
+    // Live brake and throttle blips from recent history.
+    if let Some(buf) = buffer {
+        let points = buf.get_points();
+        let now = std::time::Instant::now();
+        let window_secs = settings.window_seconds as f32;
+        let window_dur = std::time::Duration::from_secs_f64(settings.window_seconds);
+        let inner_h = rect.height() - 2.0;
+
+        for pt in points
+            .iter()
+            .filter(|p| now.duration_since(p.captured_at) <= window_dur)
+        {
+            let age = now.duration_since(pt.captured_at).as_secs_f32();
+            let freshness = (1.0 - age / window_secs).clamp(0.0, 1.0);
+            let x = rect.min.x + pt.telemetry.track_position * rect.width();
+
+            // Brake: from bottom up
+            let brake_intensity = pt.telemetry.brake * freshness;
+            if brake_intensity > 0.02 {
+                let color = if pt.abs_active && settings.show_abs {
+                    colors.abs_active
+                } else {
+                    colors.brake
+                };
+                let [r, g, b, ca] = color.to_array();
+                let alpha = ((ca as f32) * (a as f32 / 255.0) * brake_intensity).min(255.0) as u8;
+                let h = (pt.telemetry.brake * inner_h).max(1.0);
+                painter.line_segment(
+                    [
+                        egui::pos2(x, rect.max.y - 1.0),
+                        egui::pos2(x, rect.max.y - 1.0 - h),
+                    ],
+                    egui::Stroke::new(1.5, egui::Color32::from_rgba_unmultiplied(r, g, b, alpha)),
+                );
+            }
+
+            // Throttle: from top down
+            let throttle_intensity = pt.telemetry.throttle * freshness;
+            if throttle_intensity > 0.02 {
+                let [r, g, b, ca] = colors.throttle.to_array();
+                let alpha =
+                    ((ca as f32) * (a as f32 / 255.0) * throttle_intensity).min(255.0) as u8;
+                let h = (pt.telemetry.throttle * inner_h).max(1.0);
+                painter.line_segment(
+                    [
+                        egui::pos2(x, rect.min.y + 1.0),
+                        egui::pos2(x, rect.min.y + 1.0 + h),
+                    ],
+                    egui::Stroke::new(1.5, egui::Color32::from_rgba_unmultiplied(r, g, b, alpha)),
+                );
+            }
+        }
+    }
+
+    // Current position cursor — bright white vertical line.
+    let cx = rect.min.x + current_pos.clamp(0.0, 1.0) * rect.width();
+    painter.line_segment(
+        [egui::pos2(cx, rect.min.y), egui::pos2(cx, rect.max.y)],
+        egui::Stroke::new(2.0, with_alpha(egui::Color32::WHITE, a)),
+    );
+}
+
 // ── Config panel ─────────────────────────────────────────────────────────────
 
 fn draw_config(
@@ -815,6 +1070,7 @@ fn draw_config(
     running: &mut bool,
     save_toast: &mut Option<std::time::Instant>,
     buffer: Option<&Arc<crate::core::TelemetryBuffer>>,
+    lap_store: &mut crate::core::LapStore,
 ) {
     // Ensure all widgets (sliders, dropdowns, colour pickers) use dark styling
     // regardless of the OS theme reported by the platform layer.
@@ -894,6 +1150,7 @@ fn draw_config(
     // ── Display ──────────────────────────────────────────────────────────────
     section_header(ui, "DISPLAY");
     ui.checkbox(&mut settings.graph.show_legend, "Show legend");
+    ui.checkbox(&mut settings.graph.show_track_strip, "Show track strip");
     ui.horizontal(|ui| {
         ui.label(
             egui::RichText::new("Speed unit")
@@ -951,6 +1208,14 @@ fn draw_config(
         &mut settings.graph.show_throttle,
         &mut settings.colors.throttle,
     );
+    ui.indent("tc_indent", |ui| {
+        trace_section(
+            ui,
+            "TC",
+            &mut settings.graph.show_tc,
+            &mut settings.colors.tc_active,
+        );
+    });
     trace_section(
         ui,
         "BRAKE",
@@ -970,6 +1235,12 @@ fn draw_config(
         "CLUTCH",
         &mut settings.graph.show_clutch,
         &mut settings.colors.clutch,
+    );
+    trace_section(
+        ui,
+        "SPEED",
+        &mut settings.graph.show_speed,
+        &mut settings.colors.speed,
     );
 
     // ── Trail braking ─────────────────────────────────────────────────────────
@@ -1005,6 +1276,31 @@ fn draw_config(
     if ui.add(styled_button(phase_label)).clicked() {
         settings.graph.phase_plot_open = !settings.graph.phase_plot_open;
     }
+
+    // ── Lap comparison ────────────────────────────────────────────────────────
+    section_header(ui, "LAP COMPARISON");
+    let cmp_label = if settings.graph.lap_comparison_open {
+        "Hide comparison"
+    } else {
+        "Show comparison"
+    };
+    if ui.add(styled_button(cmp_label)).clicked() {
+        settings.graph.lap_comparison_open = !settings.graph.lap_comparison_open;
+    }
+    ui.add_space(4.0);
+    let ref_status = match &lap_store.reference_lap {
+        Some(pts) => format!("Ref: {} pts", pts.len()),
+        None => "No reference lap".to_string(),
+    };
+    ui.label(egui::RichText::new(ref_status).size(10.0).color(LABEL_DIM));
+    ui.horizontal(|ui| {
+        if ui.add(styled_button("Set Ref")).clicked() {
+            lap_store.set_current_as_reference();
+        }
+        if ui.add(styled_button("Clear")).clicked() {
+            lap_store.clear_reference();
+        }
+    });
 
     // ── Logs ─────────────────────────────────────────────────────────────────
     section_header(ui, "LOGS");
