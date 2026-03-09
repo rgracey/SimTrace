@@ -22,6 +22,8 @@ pub struct LapSample {
     pub tc_active: bool,
     /// Milliseconds elapsed since the start of this lap.
     pub lap_elapsed_ms: u32,
+    /// Car heading (yaw) in radians. 0.0 means unavailable.
+    pub heading: f32,
 }
 
 impl LapSample {
@@ -37,6 +39,7 @@ impl LapSample {
             abs_active: point.abs_active,
             tc_active: point.telemetry.tc_active,
             lap_elapsed_ms: lap_start.elapsed().as_millis() as u32,
+            heading: point.telemetry.heading,
         }
     }
 }

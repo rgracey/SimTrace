@@ -124,6 +124,8 @@ impl GamePlugin for IracingPlugin {
             let abs_active = unsafe { mem.abs_active(buf) };
             let track_position = unsafe { mem.lap_dist_pct(buf) }.clamp(0.0, 1.0);
 
+            let heading = unsafe { mem.yaw(buf) };
+
             let vehicle = VehicleTelemetry {
                 throttle,
                 brake,
@@ -135,6 +137,7 @@ impl GamePlugin for IracingPlugin {
                 abs_active,
                 tc_active: false,
                 track_position,
+                heading,
             };
 
             let timestamp = std::time::SystemTime::now()

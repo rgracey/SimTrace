@@ -91,6 +91,7 @@ impl GamePlugin for AccPlugin {
             abs_active: physics.abs > 0.01,
             tc_active: physics.tc > 0.01,
             track_position: graphics.normalized_car_position,
+            heading: physics.heading, // radians, car yaw in world frame
         };
 
         let static_info = unsafe { mem.static_info() };

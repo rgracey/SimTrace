@@ -166,6 +166,10 @@ fn coach_loop(
 
     let cooldown = Duration::from_secs(config.cooldown_secs as u64);
     let mut last_tip_at: Option<Instant> = None;
+    // Separate cooldown for real-time global tips (TC/ABS/overlap/coast) so
+    // they can't starve corner-specific tips of their cooldown slot.
+    let realtime_cooldown = cooldown.max(Duration::from_secs(30));
+    let mut last_realtime_tip_at: Option<Instant> = None;
 
     // Coach mode: pending tips to fire before each corner next lap.
     // Maps corner_id → (tip text, priority) so we can surface the worst corner in lap summaries.
@@ -240,7 +244,13 @@ fn coach_loop(
             // ── Real-time analysis ────────────────────────────────────────
             let rt_tips = analyzer.analyze_realtime(&sample);
             for tip in rt_tips {
-                maybe_send_tip(speaker.as_deref(), tip, &tx, &mut last_tip_at, cooldown);
+                maybe_send_tip(
+                    speaker.as_deref(),
+                    tip,
+                    &tx,
+                    &mut last_realtime_tip_at,
+                    realtime_cooldown,
+                );
             }
 
             // ── Anticipatory tips ────────────────────────────────────────
@@ -355,9 +365,10 @@ fn coach_loop(
                                 last_apex_speed.insert(prev, apex);
                             }
 
-                            // Require >=3 laps of data before coaching this corner —
-                            // early detections are noisy and produce unreliable tips.
-                            let tips = if c.confidence >= 3 {
+                            // Require >=2 laps of data before coaching this corner —
+                            // by lap 2 the track map has been refined once and a
+                            // reference lap exists, so tips are reliable enough.
+                            let tips = if c.confidence >= 2 {
                                 analyzer.analyze_corner(&c, &corner_samples, ref_perf, track_len)
                             } else {
                                 vec![]
@@ -457,16 +468,38 @@ fn coach_loop(
                 }
 
                 // Build or refine track map.
-                if track_map.is_none() && lap.samples.len() > 100 {
+                //
+                // We need enough samples to cover a nearly-complete lap.
+                // At 60 Hz a 30-second partial lap start yields ~1 800 samples,
+                // so require at least 2 000 to rule those out.
+                // We also re-detect if the current map has suspiciously few
+                // corners (< 4) — this handles the partial-lap cold-start case
+                // where the car was positioned just before the S/F line and the
+                // first fired "lap" only saw a small portion of the track.
+                const MIN_DETECTION_SAMPLES: usize = 2000;
+                let current_corner_count =
+                    track_map.as_ref().map(|m| m.corners.len()).unwrap_or(0);
+                let want_detect = (track_map.is_none() || current_corner_count < 4)
+                    && lap.samples.len() >= MIN_DETECTION_SAMPLES;
+
+                if want_detect {
                     let corners = CornerDetector::detect(&lap.samples);
-                    if !corners.is_empty() {
+                    if corners.len() > current_corner_count {
+                        info!(
+                            "Coach: detected {} corners on '{}' ({} samples)",
+                            corners.len(),
+                            lap.track_name,
+                            lap.samples.len(),
+                        );
+                        // Corner IDs are changing — flush stale per-corner state.
+                        if current_corner_count > 0 {
+                            pending_corner_tips.clear();
+                            anticipatory_fired.clear();
+                            last_apex_speed.clear();
+                            corner_tip_laps.clear();
+                        }
                         let map =
                             TrackMap::new(lap.track_name.clone(), lap.track_length_m, corners);
-                        info!(
-                            "Coach: detected {} corners on '{}'",
-                            map.corners.len(),
-                            map.track_name
-                        );
                         let _ = map.save(&tracks_dir);
                         track_map = Some(map);
                     }
