@@ -13,18 +13,13 @@
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
-use super::corner::DetectedCorner;
+use super::centerline::Centerline;
+use super::corner::{CornerDirection, DetectedCorner};
 use super::events::{CoachEvent, StructuredTip};
 use super::lap::LapSample;
 use super::reference::CornerPerf;
 
 // ── Thresholds ────────────────────────────────────────────────────────────────
-
-const ABS_WINDOW_SECS: u64 = 15;
-const ABS_ABUSE_THRESHOLD: u32 = 4;
-
-const TC_WINDOW_SECS: u64 = 15;
-const TC_ABUSE_THRESHOLD: u32 = 4;
 
 /// Both pedals above this fraction → overlap (excludes gear-blip noise).
 const OVERLAP_THRESHOLD: f32 = 0.10;
@@ -50,6 +45,12 @@ const ENTRY_SPEED_HOT_KPH: f32 = 10.0;
 const THROTTLE_DELTA_MIN_M: f32 = 5.0;
 /// TC activations during a corner exit to flag early throttle.
 const TC_CORNER_THRESHOLD: u32 = 2;
+/// Minimum metres ahead of geometric apex for driver's speed minimum to count as early apexing.
+const EARLY_APEX_MIN_M: f32 = 15.0;
+/// Minimum world-space metres off the centerline at the apex to flag a missed apex.
+const MISSED_APEX_MIN_M: f32 = 4.0;
+/// Steering angle (degrees) at throttle application that suggests exit understeer.
+const EXIT_UNDERSTEER_STEER_DEG: f32 = 12.0;
 
 /// Round a distance in metres to the nearest 10 m (minimum 10 m).
 /// Turns "37m" into "40m" — more natural for a driver to act on.
@@ -57,47 +58,9 @@ fn round_m(m: f32) -> u32 {
     ((m / 10.0).round() as u32).max(1) * 10
 }
 
-// ── Rolling event window ──────────────────────────────────────────────────────
-
-struct EventWindow {
-    events: VecDeque<Instant>,
-    window: Duration,
-}
-
-impl EventWindow {
-    fn new(window_secs: u64) -> Self {
-        Self {
-            events: VecDeque::new(),
-            window: Duration::from_secs(window_secs),
-        }
-    }
-
-    fn record(&mut self) {
-        self.prune();
-        self.events.push_back(Instant::now());
-    }
-
-    fn count(&mut self) -> u32 {
-        self.prune();
-        self.events.len() as u32
-    }
-
-    fn prune(&mut self) {
-        let cutoff = Instant::now() - self.window;
-        while self.events.front().map(|&t| t < cutoff).unwrap_or(false) {
-            self.events.pop_front();
-        }
-    }
-}
-
 // ── Analyzer ─────────────────────────────────────────────────────────────────
 
 pub struct Analyzer {
-    abs_window: EventWindow,
-    tc_window: EventWindow,
-    was_abs_active: bool,
-    was_tc_active: bool,
-
     overlap_since: Option<Instant>,
     coast_since: Option<Instant>,
 
@@ -108,10 +71,6 @@ pub struct Analyzer {
 impl Analyzer {
     pub fn new() -> Self {
         Self {
-            abs_window: EventWindow::new(ABS_WINDOW_SECS),
-            tc_window: EventWindow::new(TC_WINDOW_SECS),
-            was_abs_active: false,
-            was_tc_active: false,
             overlap_since: None,
             coast_since: None,
             last_steering_sign: None,
@@ -125,50 +84,6 @@ impl Analyzer {
     /// applies cooldown before forwarding any of them.
     pub fn analyze_realtime(&mut self, sample: &LapSample) -> Vec<StructuredTip> {
         let mut tips = Vec::new();
-
-        // ── ABS activation tracking ──────────────────────────────────────────
-        if sample.abs_active && !self.was_abs_active {
-            self.abs_window.record();
-        }
-        self.was_abs_active = sample.abs_active;
-
-        let abs_count = self.abs_window.count();
-        if abs_count > ABS_ABUSE_THRESHOLD {
-            tips.push(StructuredTip::new(
-                CoachEvent::AbsAbuse {
-                    count: abs_count,
-                    window_secs: ABS_WINDOW_SECS as f32,
-                },
-                format!(
-                    "Ease the brakes — ABS firing {} times in {}s",
-                    abs_count, ABS_WINDOW_SECS
-                ),
-                3,
-                None,
-            ));
-        }
-
-        // ── TC activation tracking ───────────────────────────────────────────
-        if sample.tc_active && !self.was_tc_active {
-            self.tc_window.record();
-        }
-        self.was_tc_active = sample.tc_active;
-
-        let tc_count = self.tc_window.count();
-        if tc_count > TC_ABUSE_THRESHOLD {
-            tips.push(StructuredTip::new(
-                CoachEvent::TcAbuse {
-                    count: tc_count,
-                    window_secs: TC_WINDOW_SECS as f32,
-                },
-                format!(
-                    "Progressive on the power — TC fired {} times in {}s",
-                    tc_count, TC_WINDOW_SECS
-                ),
-                3,
-                None,
-            ));
-        }
 
         // ── Throttle / brake overlap ─────────────────────────────────────────
         let overlapping = sample.throttle > OVERLAP_THRESHOLD && sample.brake > OVERLAP_THRESHOLD;
@@ -249,34 +164,145 @@ impl Analyzer {
     /// the corner's geometric zone (turn_in..zone_exit).  Returns tips
     /// comparing this lap's performance to `reference`, or an empty vec if no
     /// reference is provided.
+    ///
+    /// `centerline` is optional — when present and world XZ is available,
+    /// line-deviation tips ("you're off the apex") are also generated.
     pub fn analyze_corner(
         &self,
         corner: &DetectedCorner,
         corner_samples: &[LapSample],
         reference: Option<&CornerPerf>,
         track_length_m: f32,
+        centerline: Option<&Centerline>,
     ) -> Vec<StructuredTip> {
         let mut tips = Vec::new();
-
-        let Some(ref_perf) = reference else {
-            return tips;
-        };
 
         if corner_samples.is_empty() {
             return tips;
         }
 
+        let dir_str = match corner.direction {
+            CornerDirection::Left => "left",
+            CornerDirection::Right => "right",
+        };
+        let t = corner.id; // shorthand for tip formatting
+
+        // ── Find actual apex (speed minimum) ─────────────────────────────────
+        let apex_sample = corner_samples
+            .iter()
+            .min_by(|a, b| {
+                a.speed_kph
+                    .partial_cmp(&b.speed_kph)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+        let apex_speed = apex_sample.map(|s| s.speed_kph).unwrap_or(f32::INFINITY);
+        let actual_apex_pos = apex_sample.map(|s| s.track_pos).unwrap_or(corner.apex);
+
+        // ── Early apex ───────────────────────────────────────────────────────
+        // Driver's min-speed point is well before the geometric apex.
+        // This is the most common cause of running wide on exit.
+        let early_m = (corner.apex - actual_apex_pos) * track_length_m;
+        if early_m > EARLY_APEX_MIN_M {
+            tips.push(StructuredTip::new(
+                CoachEvent::EarlyApex {
+                    corner_id: t,
+                    early_m,
+                },
+                format!(
+                    "Turn {t} ({dir_str}): you're hitting the apex {}m too early — \
+                     wait for the geometric apex or you'll run wide on exit",
+                    round_m(early_m)
+                ),
+                4,
+                Some(t),
+            ));
+        }
+
+        // ── Brake over apex ──────────────────────────────────────────────────
+        // Brake trace still active past the geometric apex prevents the car
+        // from rotating and causes understeer / slow exit.
+        let braking_past_apex = corner_samples
+            .iter()
+            .any(|s| s.track_pos > corner.apex && s.brake > 0.05);
+        if braking_past_apex {
+            tips.push(StructuredTip::new(
+                CoachEvent::BrakeOverApex { corner_id: t },
+                format!(
+                    "Turn {t} ({dir_str}): release the brakes before the apex — \
+                     you're still on them mid-corner and killing rotation"
+                ),
+                3,
+                Some(t),
+            ));
+        }
+
+        // ── World-XZ apex deviation ──────────────────────────────────────────
+        // When world coordinates are available, compare the driver's position
+        // at the apex to the ideal line (centerline).
+        if let (Some(cl), Some(apex_s)) = (centerline, apex_sample) {
+            if apex_s.world_x != 0.0 {
+                if let Some(cl_pt) = cl.point_at(corner.apex) {
+                    let dx = apex_s.world_x - cl_pt.x;
+                    let dz = apex_s.world_z - cl_pt.z;
+                    let deviation_m = (dx * dx + dz * dz).sqrt();
+                    if deviation_m > MISSED_APEX_MIN_M {
+                        tips.push(StructuredTip::new(
+                            CoachEvent::MissedApex {
+                                corner_id: t,
+                                deviation_m,
+                            },
+                            format!(
+                                "Turn {t} ({dir_str}): you're {}m off the apex — \
+                                 get closer to the inside",
+                                deviation_m as u32
+                            ),
+                            4,
+                            Some(t),
+                        ));
+                    }
+                }
+            }
+        }
+
+        // From here on, tips require a reference lap.
+        let Some(ref_perf) = reference else {
+            return tips;
+        };
+
         // Track whether a root-cause tip already explains poor apex speed,
         // so we don't double-tip "slow apex" as a separate item.
-        let mut brake_or_throttle_tip_fired = false;
-
-        // ── Apex speed ───────────────────────────────────────────────────────
-        let apex_speed = corner_samples
-            .iter()
-            .map(|s| s.speed_kph)
-            .fold(f32::INFINITY, f32::min);
+        let mut apex_explained = !tips.is_empty();
 
         let apex_delta = ref_perf.apex_speed_kph - apex_speed;
+
+        // ── Gear at apex ─────────────────────────────────────────────────────
+        let apex_gear = apex_sample.map(|s| s.gear).unwrap_or(0);
+        if apex_gear > 0 && ref_perf.gear > 0 && apex_gear != ref_perf.gear {
+            let gear_tip = if apex_gear > ref_perf.gear {
+                format!(
+                    "Turn {t} ({dir_str}): drop to gear {} at the apex — \
+                     you're a gear too high and losing drive",
+                    ref_perf.gear
+                )
+            } else {
+                format!(
+                    "Turn {t} ({dir_str}): try gear {} at the apex — \
+                     you're over-revving through the corner",
+                    ref_perf.gear
+                )
+            };
+            tips.push(StructuredTip::new(
+                CoachEvent::WrongGearAtApex {
+                    corner_id: t,
+                    actual_gear: apex_gear,
+                    ref_gear: ref_perf.gear,
+                },
+                gear_tip,
+                3,
+                Some(t),
+            ));
+            apex_explained = true;
+        }
 
         // ── Brake point ──────────────────────────────────────────────────────
         let actual_brake_point = corner_samples
@@ -290,35 +316,41 @@ impl Analyzer {
 
             if delta_m > BRAKE_DELTA_MIN_M {
                 // Braking before the reference point.
-                brake_or_throttle_tip_fired = true;
+                apex_explained = true;
                 tips.push(StructuredTip::new(
                     CoachEvent::BrakingTooEarly {
-                        corner_id: corner.id,
+                        corner_id: t,
                         delta_track_pos: delta,
                         estimated_time_lost_ms: delta_m * 10.0,
                     },
-                    format!("Brake {}m later", round_m(delta_m)),
+                    format!(
+                        "Turn {t} ({dir_str}): brake {}m later — \
+                         you're giving up {}kph of entry speed",
+                        round_m(delta_m),
+                        (apex_delta.max(0.0) as u32)
+                    ),
                     3,
-                    Some(corner.id),
+                    Some(t),
                 ));
             } else if delta_m < -BRAKE_DELTA_MIN_M {
                 // Braking after the reference — hot entry.
                 let entry_speed = corner_samples.first().map(|s| s.speed_kph).unwrap_or(0.0);
                 let speed_delta = entry_speed - ref_perf.entry_speed_kph;
                 if speed_delta > ENTRY_SPEED_HOT_KPH {
-                    brake_or_throttle_tip_fired = true;
+                    apex_explained = true;
                     tips.push(StructuredTip::new(
                         CoachEvent::BrakingTooLate {
-                            corner_id: corner.id,
+                            corner_id: t,
                             entry_speed_delta_kph: speed_delta,
                         },
                         format!(
-                            "{}m earlier on the brakes — you're {:.0}kph too hot",
+                            "Turn {t} ({dir_str}): brake {}m earlier — \
+                             you're arriving {:.0}kph too hot and running wide",
                             round_m(-delta_m),
                             speed_delta
                         ),
                         4,
-                        Some(corner.id),
+                        Some(t),
                     ));
                 }
             }
@@ -327,23 +359,27 @@ impl Analyzer {
         // ── Throttle application ─────────────────────────────────────────────
         let actual_throttle_point = corner_samples
             .iter()
-            .find(|s| s.track_pos > corner.apex && s.throttle > 0.20)
-            .map(|s| s.track_pos);
+            .find(|s| s.track_pos > corner.apex && s.throttle > 0.20);
 
-        if let Some(actual_tp) = actual_throttle_point {
+        if let Some(actual_tp_s) = actual_throttle_point {
+            let actual_tp = actual_tp_s.track_pos;
             let delta = actual_tp - ref_perf.throttle_point;
             let delta_m = delta * track_length_m;
 
             if delta_m > THROTTLE_DELTA_MIN_M {
-                brake_or_throttle_tip_fired = true;
+                apex_explained = true;
                 tips.push(StructuredTip::new(
                     CoachEvent::ThrottleTooLate {
-                        corner_id: corner.id,
+                        corner_id: t,
                         delta_track_pos: delta,
                     },
-                    format!("Power {}m earlier on the way out", round_m(delta_m)),
+                    format!(
+                        "Turn {t} ({dir_str}): power up {}m earlier on the way out — \
+                         you're leaving exit speed on the table",
+                        round_m(delta_m)
+                    ),
                     3,
-                    Some(corner.id),
+                    Some(t),
                 ));
             } else if delta_m < -THROTTLE_DELTA_MIN_M {
                 let tc_hits = corner_samples
@@ -351,32 +387,49 @@ impl Analyzer {
                     .filter(|w| !w[0].tc_active && w[1].tc_active)
                     .count() as u32;
                 if tc_hits > TC_CORNER_THRESHOLD {
-                    brake_or_throttle_tip_fired = true;
+                    apex_explained = true;
                     tips.push(StructuredTip::new(
-                        CoachEvent::ThrottleTooEarly {
-                            corner_id: corner.id,
-                        },
-                        format!("Hold the throttle — TC fired {} times on exit", tc_hits),
+                        CoachEvent::ThrottleTooEarly { corner_id: t },
+                        format!(
+                            "Turn {t} ({dir_str}): wait longer before powering — \
+                             TC fired {tc_hits}× on exit, you're spinning the wheels"
+                        ),
                         3,
-                        Some(corner.id),
+                        Some(t),
                     ));
                 }
+            }
+
+            // ── Exit understeer ──────────────────────────────────────────────
+            // High steering angle at the point of throttle application means
+            // the car is still pointing at the outside — understeer / wrong line.
+            if actual_tp_s.steering_angle.abs() > EXIT_UNDERSTEER_STEER_DEG {
+                tips.push(StructuredTip::new(
+                    CoachEvent::ExitUndersteer { corner_id: t },
+                    format!(
+                        "Turn {t} ({dir_str}): wait until the car is pointed straight \
+                         before powering — you're fighting understeer on exit"
+                    ),
+                    3,
+                    Some(t),
+                ));
             }
         }
 
         // ── Apex speed — only when no root-cause tip already explains it ─────
-        if !brake_or_throttle_tip_fired && apex_delta > APEX_SPEED_THRESHOLD_KPH {
+        if !apex_explained && apex_delta > APEX_SPEED_THRESHOLD_KPH {
             tips.push(StructuredTip::new(
                 CoachEvent::SlowApex {
-                    corner_id: corner.id,
+                    corner_id: t,
                     delta_kph: apex_delta,
                 },
                 format!(
-                    "You're {:.0}kph down at the apex — carry more speed",
+                    "Turn {t} ({dir_str}): you're {:.0}kph down at the apex — \
+                     commit to the inside and carry more speed",
                     apex_delta
                 ),
                 4,
-                Some(corner.id),
+                Some(t),
             ));
         }
 

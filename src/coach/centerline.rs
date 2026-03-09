@@ -108,6 +108,16 @@ impl Centerline {
             .unwrap_or(0.0)
     }
 
+    /// Return the centerline point whose `track_pos` is nearest to `pos`.
+    pub fn point_at(&self, pos: f32) -> Option<&CenterlinePoint> {
+        self.points.iter().min_by(|a, b| {
+            (a.track_pos - pos)
+                .abs()
+                .partial_cmp(&(b.track_pos - pos).abs())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+    }
+
     pub fn save(&self, dir: &Path, stem: &str) -> anyhow::Result<()> {
         std::fs::create_dir_all(dir)?;
         let path = dir.join(format!("{stem}_centerline.json"));

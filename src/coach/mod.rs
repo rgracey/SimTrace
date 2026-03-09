@@ -397,7 +397,13 @@ fn coach_loop(
                             // by lap 2 the track map has been refined once and a
                             // reference lap exists, so tips are reliable enough.
                             let tips = if c.confidence >= 2 {
-                                analyzer.analyze_corner(&c, &corner_samples, ref_perf, track_len)
+                                analyzer.analyze_corner(
+                                    &c,
+                                    &corner_samples,
+                                    ref_perf,
+                                    track_len,
+                                    centerline.as_ref(),
+                                )
                             } else {
                                 vec![]
                             };

@@ -59,6 +59,21 @@ pub enum CoachEvent {
     /// High-frequency steering reversals — nervous / sawing inputs.
     SteeringSaw { reversals_per_sec: f32 },
 
+    // ── Line ─────────────────────────────────────────────────────────────────
+    /// Driver's minimum speed occurs significantly before the geometric apex.
+    /// They are apexing too early and will run wide on corner exit.
+    EarlyApex { corner_id: u8, early_m: f32 },
+    /// Brake still applied at or past the geometric apex, preventing rotation.
+    BrakeOverApex { corner_id: u8 },
+    /// Driver's closest approach to the geometric apex deviates from the ideal line.
+    MissedApex { corner_id: u8, deviation_m: f32 },
+
+    // ── Mechanical ───────────────────────────────────────────────────────────
+    /// Driver in a different gear than reference at the apex.
+    WrongGearAtApex { corner_id: u8, actual_gear: i32, ref_gear: i32 },
+    /// High steering angle at throttle application — car pointing wrong way.
+    ExitUndersteer { corner_id: u8 },
+
     // ── Positive ─────────────────────────────────────────────────────────────
     /// Consistent brake point across multiple laps — reinforce.
     ConsistentBrakePoint { corner_id: u8 },
