@@ -19,10 +19,11 @@ A demo of SimTrace in action showing the (toggleable) braking x steering phase p
 
 ## Supported games
 
-| Game                          | Notes                                    |
-| ----------------------------- |------------------------------------------|
-| Assetto Corsa Competizione    |                                          |
-| Automobilista 2               | [Enable shared memory](#automobilista-2) |
+| Game                       | Notes                                    |
+| -------------------------- | ---------------------------------------- |
+| Assetto Corsa Competizione |                                          |
+| Automobilista 2            | [Enable shared memory](#automobilista-2) |
+| iRacing                    | Support is currently experimental        |
 
 ## Installation
 
