@@ -186,8 +186,8 @@ fn coach_loop(
     let mut last_realtime_tip_at: Option<Instant> = None;
 
     // Coach mode: pending tips to fire before each corner next lap.
-    // Maps corner_id → (tip text, priority) so we can surface the worst corner in lap summaries.
-    let mut pending_corner_tips: HashMap<u8, (String, u8)> = HashMap::new();
+    // Maps corner_id → (tip text, priority, time_lost_s).
+    let mut pending_corner_tips: HashMap<u8, (String, u8, Option<f32>)> = HashMap::new();
     // Track which corners have had their anticipatory tip fired this approach
     // (maps corner_id → track_pos when fired, to detect a new lap's approach).
     let mut anticipatory_fired: HashMap<u8, f32> = HashMap::new();
@@ -288,7 +288,7 @@ fn coach_loop(
                 // something to say.
                 let focus_corner_id = pending_corner_tips
                     .iter()
-                    .max_by_key(|(_, (_, pri))| *pri)
+                    .max_by_key(|(_, (_, pri, _))| *pri)
                     .map(|(&id, _)| id);
 
                 if let Some(focus_id) = focus_corner_id {
@@ -325,12 +325,13 @@ fn coach_loop(
                                 })
                                 .unwrap_or(false);
                             if !already {
-                                if let Some((text, _)) =
+                                if let Some((text, _, time_loss)) =
                                     pending_corner_tips.get(&corner.id).cloned()
                                 {
                                     send_tip_text(
                                         text,
                                         Some(corner.id),
+                                        time_loss,
                                         speaker.as_deref(),
                                         &tx,
                                         &mut last_tip_at,
@@ -413,6 +414,7 @@ fn coach_loop(
                                 send_tip_text(
                                     format!("Better at turn {}.", prev),
                                     Some(prev),
+                                    None,
                                     speaker.as_deref(),
                                     &tx,
                                     &mut last_tip_at,
@@ -426,6 +428,7 @@ fn coach_loop(
                             if let Some(best) = tips.into_iter().max_by_key(|t| t.priority) {
                                 let base_text = best.fact.clone();
                                 let priority = best.priority;
+                                let time_loss = best.time_lost_s;
                                 let first_time = !pending_corner_tips.contains_key(&prev);
 
                                 // Update repeat streak.
@@ -448,15 +451,16 @@ fn coach_loop(
                                 } else {
                                     // Escalate after 3 laps with the same tip and no improvement.
                                     let text = if streak >= 3 && !improved {
-                                        format!("Still — {}. Commit to it.", base_text.trim_end_matches('.'))
+                                        format!("Still — {}", base_text.trim_end_matches('.'))
                                     } else {
                                         base_text
                                     };
-                                    pending_corner_tips.insert(prev, (text.clone(), priority));
+                                    pending_corner_tips.insert(prev, (text.clone(), priority, time_loss));
                                     if first_time {
                                         send_tip_text(
                                             text,
                                             Some(prev),
+                                            time_loss,
                                             speaker.as_deref(),
                                             &tx,
                                             &mut last_tip_at,
@@ -579,14 +583,31 @@ fn coach_loop(
                             format!(" — {:+.1}s", delta_s)
                         })
                         .unwrap_or_default();
-                    let focus_str = pending_corner_tips
+
+                    // Surface up to two worst corners by time loss, falling back to priority.
+                    let mut corner_losses: Vec<(u8, Option<f32>)> = pending_corner_tips
                         .iter()
-                        .max_by_key(|(_, (_, pri))| *pri)
-                        .map(|(&id, _)| format!(" Focus turn {}.", id))
-                        .unwrap_or_default();
-                    let summary = format!("{}{}.{}", lap_str, delta_str, focus_str);
+                        .map(|(&id, (_, _, tl))| (id, *tl))
+                        .collect();
+                    corner_losses.sort_by(|(_, a), (_, b)| {
+                        b.unwrap_or(0.0)
+                            .partial_cmp(&a.unwrap_or(0.0))
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    });
+
+                    let focus_str = match corner_losses.as_slice() {
+                        [] => String::new(),
+                        [(id, Some(tl)), (id2, Some(tl2)), ..] => {
+                            format!(" Turn {id}: +{tl:.2}s, Turn {id2}: +{tl2:.2}s.")
+                        }
+                        [(id, Some(tl)), ..] => format!(" Turn {id}: +{tl:.2}s lost."),
+                        [(id, None), ..] => format!(" Focus turn {id}."),
+                    };
+
+                    let summary = format!("{lap_str}{delta_str}.{focus_str}");
                     send_tip_text(
                         summary,
+                        None,
                         None,
                         speaker.as_deref(),
                         &tx,
@@ -659,10 +680,11 @@ fn format_lap_time(ms: u32) -> String {
     format!("{}:{:06.3}", mins, secs)
 }
 
-/// Send a pre-rephrased tip text directly (used in Coach/anticipatory mode).
+/// Send a pre-formatted tip text directly (used for anticipatory and lap-summary tips).
 fn send_tip_text(
     text: String,
     corner_id: Option<u8>,
+    time_lost_s: Option<f32>,
     speaker: Option<&dyn tts::Speaker>,
     tx: &mpsc::Sender<CoachMsg>,
     last_tip_at: &mut Option<Instant>,
@@ -679,6 +701,7 @@ fn send_tip_text(
         text,
         corner_id,
         priority: 3,
+        time_lost_s,
         generated_at: Instant::now(),
     };
     if tx.send(CoachMsg::Tip(coach_tip)).is_ok() {
@@ -705,6 +728,7 @@ fn maybe_send_tip(
         text,
         corner_id: tip.corner_id,
         priority: tip.priority,
+        time_lost_s: tip.time_lost_s,
         generated_at: Instant::now(),
     };
     if tx.send(CoachMsg::Tip(coach_tip)).is_ok() {

@@ -14,42 +14,44 @@ pub enum CoachEvent {
         corner_id: u8,
         /// Fraction of track length (0.0–1.0) braked earlier than reference.
         delta_track_pos: f32,
-        /// Rough time estimate in milliseconds.
-        estimated_time_lost_ms: f32,
     },
     /// Driver carried too much entry speed into the corner.
     BrakingTooLate {
         corner_id: u8,
         entry_speed_delta_kph: f32,
     },
-    /// Brake application point varies significantly between laps.
-    InconsistentBrakePoint {
-        corner_id: u8,
-        /// Standard deviation of brake point across recent laps.
-        std_dev_track_pos: f32,
-    },
-    /// ABS activating more than expected — too much pressure.
-    AbsAbuse { count: u32, window_secs: f32 },
-    /// Brake released too abruptly before apex — trail brake dropped.
-    TrailBrakeTooShort { corner_id: u8 },
+    /// Too many ABS activations through the braking zone — over-pressure.
+    ExcessiveBrakePressure { corner_id: u8, abs_count: u32 },
+    /// Brake released too abruptly before apex — should trail off gradually.
+    TrailBrakeTooSudden { corner_id: u8 },
 
     // ── Corner ───────────────────────────────────────────────────────────────
     /// Apex speed lower than reference — time being lost mid-corner.
     SlowApex { corner_id: u8, delta_kph: f32 },
     /// Apex speed faster than reference — positive feedback.
     ImprovedApexSpeed { corner_id: u8, delta_kph: f32 },
-    /// Brake still active deep in corner — entry understeer.
-    EntryUndersteer { corner_id: u8 },
-    /// Steering reversal detected mid-corner — overdriving entry.
-    MidCornerCorrection { corner_id: u8 },
+    /// Brake still applied at or past the geometric apex, preventing rotation.
+    BrakeOverApex { corner_id: u8 },
+    /// Driver's minimum speed occurs significantly before the geometric apex.
+    EarlyApex { corner_id: u8, early_m: f32 },
+    /// Driver's closest approach to the geometric apex deviates from the ideal line.
+    MissedApex { corner_id: u8, deviation_m: f32 },
 
     // ── Exit ─────────────────────────────────────────────────────────────────
     /// Throttle applied before car is rotated — TC being triggered.
     ThrottleTooEarly { corner_id: u8 },
     /// Throttle applied later than reference — exit speed being left behind.
     ThrottleTooLate { corner_id: u8, delta_track_pos: f32 },
-    /// TC activating more than expected — throttle too aggressive or early.
-    TcAbuse { count: u32, window_secs: f32 },
+    /// Throttle increases too slowly after the apex.
+    ThrottleBuildupSlow { corner_id: u8 },
+    /// Throttle stays at partial application before committing.
+    ThrottleHesitation { corner_id: u8 },
+    /// High steering angle at throttle application — car pointing wrong way.
+    ExitUndersteer { corner_id: u8 },
+
+    // ── Mechanical ───────────────────────────────────────────────────────────
+    /// Driver in a different gear than reference at the apex.
+    WrongGearAtApex { corner_id: u8, actual_gear: i32, ref_gear: i32 },
 
     // ── Macro ────────────────────────────────────────────────────────────────
     /// No throttle, no brake for too long at racing speed.
@@ -59,40 +61,24 @@ pub enum CoachEvent {
     /// High-frequency steering reversals — nervous / sawing inputs.
     SteeringSaw { reversals_per_sec: f32 },
 
-    // ── Line ─────────────────────────────────────────────────────────────────
-    /// Driver's minimum speed occurs significantly before the geometric apex.
-    /// They are apexing too early and will run wide on corner exit.
-    EarlyApex { corner_id: u8, early_m: f32 },
-    /// Brake still applied at or past the geometric apex, preventing rotation.
-    BrakeOverApex { corner_id: u8 },
-    /// Driver's closest approach to the geometric apex deviates from the ideal line.
-    MissedApex { corner_id: u8, deviation_m: f32 },
-
-    // ── Mechanical ───────────────────────────────────────────────────────────
-    /// Driver in a different gear than reference at the apex.
-    WrongGearAtApex { corner_id: u8, actual_gear: i32, ref_gear: i32 },
-    /// High steering angle at throttle application — car pointing wrong way.
-    ExitUndersteer { corner_id: u8 },
-
     // ── Positive ─────────────────────────────────────────────────────────────
     /// Consistent brake point across multiple laps — reinforce.
     ConsistentBrakePoint { corner_id: u8 },
 }
 
 /// A coaching event paired with a plain-English fact string and metadata.
-///
-/// The `fact` field is a complete, factual sentence — e.g.
-/// "Corner 3: you're braking 12% of the track earlier than your reference."
-/// The `Rephraser` may reword this for variety while preserving the meaning.
 #[derive(Debug, Clone)]
 pub struct StructuredTip {
     pub event: CoachEvent,
-    /// Plain-English description of the observed issue.
+    /// Short, actionable coaching sentence ready for display and TTS.
     pub fact: String,
     /// Priority 1 (low / positive) – 5 (critical). Higher tips displace lower ones.
     pub priority: u8,
     /// Corner ID this relates to, if corner-specific.
     pub corner_id: Option<u8>,
+    /// Estimated time lost vs reference in this corner (seconds).
+    /// `None` when a reference lap is unavailable or the loss is negligible.
+    pub time_lost_s: Option<f32>,
 }
 
 impl StructuredTip {
@@ -107,14 +93,20 @@ impl StructuredTip {
             fact: fact.into(),
             priority,
             corner_id,
+            time_lost_s: None,
         }
+    }
+
+    /// Attach an estimated time loss to this tip.
+    pub fn with_time_loss(mut self, loss_s: Option<f32>) -> Self {
+        self.time_lost_s = loss_s.filter(|&s| s > 0.02);
+        self
     }
 }
 
 /// A tip ready for display and TTS output.
 ///
 /// This is the final form that flows from the coach thread to the UI.
-/// The `text` may have been rephrased by the `Rephraser`.
 #[derive(Debug, Clone)]
 pub struct CoachTip {
     /// The spoken / displayed text.
@@ -123,5 +115,7 @@ pub struct CoachTip {
     pub corner_id: Option<u8>,
     /// 1–5, matching the source `StructuredTip`.
     pub priority: u8,
+    /// Estimated time lost in this corner vs reference. `None` if unavailable.
+    pub time_lost_s: Option<f32>,
     pub generated_at: std::time::Instant,
 }
