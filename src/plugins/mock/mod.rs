@@ -133,7 +133,8 @@ impl MockPlugin {
             abs_active,
             tc_active: false,
             track_position: (t / MOCK_LAP_SECS).fract(),
-            heading: 0.0, // mock plugin has no world coordinates
+            world_x: 0.0,
+            world_z: 0.0,
         }
     }
 }

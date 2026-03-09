@@ -28,6 +28,9 @@ pub struct CoachConfig {
     /// Override for the data directory (track maps, reference laps).
     /// `None` means use the platform default alongside other config.
     pub data_dir_override: Option<String>,
+    /// Whether to show the track map window.
+    #[serde(default)]
+    pub show_track_map: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -55,6 +58,7 @@ impl Default for CoachConfig {
             cooldown_secs: 20,
             reference_lap_strategy: ReferenceLapStrategy::Best,
             data_dir_override: None,
+            show_track_map: false,
         }
     }
 }

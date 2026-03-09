@@ -145,38 +145,61 @@ fn extract_corner_perfs(map: &TrackMap, samples: &[LapSample]) -> Vec<CornerPerf
     let mut perfs = Vec::new();
 
     for corner in &map.corners {
+        // The brake zone starts before the geometric turn-in, so we look back
+        // by up to 5 % of the lap to capture it.  The exit extends to zone_exit.
+        const BRAKE_LOOKBACK: f32 = 0.05;
+        let window_start = (corner.turn_in - BRAKE_LOOKBACK).max(0.0);
+
         let in_corner: Vec<&LapSample> = samples
             .iter()
-            .filter(|s| s.track_pos >= corner.brake_point && s.track_pos <= corner.exit)
+            .filter(|s| s.track_pos >= window_start && s.track_pos <= corner.zone_exit)
             .collect();
 
         if in_corner.is_empty() {
             continue;
         }
 
+        // Entry speed: first sample in the window (approach speed).
         let entry_speed = in_corner.first().map(|s| s.speed_kph).unwrap_or(0.0);
 
+        // Apex speed: minimum speed in the geometric corner zone.
         let apex_speed = in_corner
             .iter()
+            .filter(|s| s.track_pos >= corner.turn_in)
             .map(|s| s.speed_kph)
             .fold(f32::INFINITY, f32::min);
+        let apex_speed = if apex_speed.is_finite() {
+            apex_speed
+        } else {
+            in_corner
+                .iter()
+                .map(|s| s.speed_kph)
+                .fold(f32::INFINITY, f32::min)
+        };
 
+        // Exit speed: last sample in the window.
         let exit_speed = in_corner.last().map(|s| s.speed_kph).unwrap_or(0.0);
 
+        // Brake point: first sample where brake > 5 % in the window.
+        // Fall back to turn_in if the driver didn't brake (e.g. fast sweeper).
         let brake_point = in_corner
             .iter()
             .find(|s| s.brake > 0.05)
             .map(|s| s.track_pos)
-            .unwrap_or(corner.brake_point);
+            .unwrap_or(corner.turn_in);
 
+        // Throttle application: first sample past the geometric apex where
+        // throttle exceeds 20 %.  Fall back to zone_exit.
         let throttle_point = in_corner
             .iter()
             .find(|s| s.track_pos > corner.apex && s.throttle > 0.20)
             .map(|s| s.track_pos)
-            .unwrap_or(corner.exit);
+            .unwrap_or(corner.zone_exit);
 
+        // Gear at apex: gear at the speed-minimum sample.
         let gear = in_corner
             .iter()
+            .filter(|s| s.track_pos >= corner.turn_in)
             .min_by(|a, b| {
                 a.speed_kph
                     .partial_cmp(&b.speed_kph)
@@ -185,7 +208,7 @@ fn extract_corner_perfs(map: &TrackMap, samples: &[LapSample]) -> Vec<CornerPerf
             .map(|s| s.gear)
             .unwrap_or(2);
 
-        // Count leading-edge transitions (false → true).
+        // Count leading-edge ABS / TC transitions (false → true).
         let abs_activations = in_corner
             .windows(2)
             .filter(|w| !w[0].abs_active && w[1].abs_active)

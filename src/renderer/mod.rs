@@ -5,6 +5,7 @@ pub mod lap_comparison;
 pub mod phase_plot;
 pub mod steering_wheel;
 pub mod trace_graph;
+pub mod track_map_panel;
 
 pub use app::SimTraceApp;
 pub use lap_comparison::LapComparison;

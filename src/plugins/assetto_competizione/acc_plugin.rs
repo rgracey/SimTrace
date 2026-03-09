@@ -80,6 +80,10 @@ impl GamePlugin for AccPlugin {
         // Gear encoding: 0=R, 1=N, 2=1st … → our model: -1=R, 0=N, 1=1st …
         let gear = physics.gear - 1;
 
+        // player_car_id is the index into car_coordinates for the player's car.
+        // Clamp defensively — the array has 60 slots.
+        let player_idx = (graphics.player_car_id as usize).min(59);
+        let coords = graphics.car_coordinates[player_idx]; // [x, y, z]
         let vehicle = VehicleTelemetry {
             throttle: physics.gas.clamp(0.0, 1.0),
             brake: physics.brake.clamp(0.0, 1.0),
@@ -91,7 +95,8 @@ impl GamePlugin for AccPlugin {
             abs_active: physics.abs > 0.01,
             tc_active: physics.tc > 0.01,
             track_position: graphics.normalized_car_position,
-            heading: physics.heading, // radians, car yaw in world frame
+            world_x: coords[0],
+            world_z: coords[2], // Y is up; X and Z are horizontal
         };
 
         let static_info = unsafe { mem.static_info() };

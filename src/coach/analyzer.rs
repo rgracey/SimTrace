@@ -243,11 +243,12 @@ impl Analyzer {
         tips
     }
 
-    /// Analyse corner performance after the driver passes a corner's exit point.
+    /// Analyse corner performance after the driver passes a corner's zone_exit.
     ///
-    /// `corner_samples` must be the samples collected between the corner's
-    /// `brake_point` and `exit` track positions. Returns tips comparing this
-    /// performance to `reference`, or an empty vec if no reference is provided.
+    /// `corner_samples` are the samples collected while the driver was inside
+    /// the corner's geometric zone (turn_in..zone_exit).  Returns tips
+    /// comparing this lap's performance to `reference`, or an empty vec if no
+    /// reference is provided.
     pub fn analyze_corner(
         &self,
         corner: &DetectedCorner,

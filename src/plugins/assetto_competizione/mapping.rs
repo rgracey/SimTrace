@@ -146,6 +146,14 @@ pub struct SPageFileGraphic {
     // repr(C) inserts 2 bytes padding here to align f32 to 4 bytes
     pub replay_time_multiplier: f32, // deprecated
     pub normalized_car_position: f32,
+    // offset 252
+    pub active_cars: i32,
+    // offset 256: world XYZ for each car slot (Y is up; X/Z are horizontal)
+    pub car_coordinates: [[f32; 3]; 60],
+    // offset 976
+    pub car_id: [i32; 60],
+    // offset 1216: index into car_coordinates / car_id for the player's car
+    pub player_car_id: i32,
 }
 
 /// Static / per-session info

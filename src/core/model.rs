@@ -38,8 +38,11 @@ pub struct VehicleTelemetry {
     pub tc_active: bool,
     /// Track position: 0.0 to 1.0 along the track
     pub track_position: f32,
-    /// Car heading (yaw) in radians. 0.0 means unavailable (plugin does not expose it).
-    pub heading: f32,
+    /// World-space X coordinate in metres. 0.0 means unavailable.
+    pub world_x: f32,
+    /// World-space Z coordinate in metres. 0.0 means unavailable.
+    /// (Y is vertical in ACC; X and Z form the top-down 2-D plane.)
+    pub world_z: f32,
 }
 
 /// Session information (optional)

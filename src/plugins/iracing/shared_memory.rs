@@ -84,8 +84,6 @@ pub struct IracingSharedMemory {
     pub(super) abs_off: Option<i32>,
     /// Lap distance percentage 0.0–1.0
     pub(super) track_pos_off: Option<i32>,
-    /// Car yaw angle in radians (positive = left / CCW)
-    pub(super) yaw_off: Option<i32>,
 }
 
 unsafe impl Send for IracingSharedMemory {}
@@ -136,7 +134,6 @@ impl IracingSharedMemory {
             let mut rpm_off = None;
             let mut abs_off = None;
             let mut track_pos_off = None;
-            let mut yaw_off = None;
 
             for i in 0..num_vars as usize {
                 let hdr = ptr.add(var_hdr_off + i * VAR_HDR_STRIDE);
@@ -160,7 +157,6 @@ impl IracingSharedMemory {
                     "RPM" => rpm_off = Some(off),
                     "ABSactive" => abs_off = Some(off),
                     "LapDistPct" => track_pos_off = Some(off),
-                    "Yaw" => yaw_off = Some(off),
                     _ => {}
                 }
             }
@@ -178,7 +174,6 @@ impl IracingSharedMemory {
                 rpm_off,
                 abs_off,
                 track_pos_off,
-                yaw_off,
             })
         }
     }
@@ -271,12 +266,6 @@ impl IracingSharedMemory {
 
     pub unsafe fn lap_dist_pct(&self, buf: usize) -> f32 {
         self.track_pos_off.map_or(0.0, |o| self.f32_at(buf, o))
-    }
-
-    /// Car yaw in radians (iRacing "Yaw", positive = CCW / left).
-    /// Returns 0.0 if the variable is not present.
-    pub unsafe fn yaw(&self, buf: usize) -> f32 {
-        self.yaw_off.map_or(0.0, |o| self.f32_at(buf, o))
     }
 }
 

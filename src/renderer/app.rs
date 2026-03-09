@@ -739,6 +739,71 @@ impl eframe::App for SimTraceApp {
                 let _ = self.settings.save_to_config_path();
             }
         }
+
+        // ── Track map viewport ────────────────────────────────────────────────
+        if self.settings.coach.show_track_map {
+            let centerline = self.coach_status.centerline_points.clone();
+            let corners = self.coach_status.map_corners.clone();
+            let car_track_pos = self
+                .buffer
+                .latest()
+                .map(|p| p.telemetry.track_position)
+                .unwrap_or(0.0);
+            let ref_samples = self.lap_store.reference_lap.clone();
+            let laps_averaged = self.coach_status.centerline_laps;
+            let has_centerline = self.coach_status.has_centerline;
+            let coach_enabled = self.settings.coach.enabled;
+
+            let close_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let close_arc = close_flag.clone();
+
+            ctx.show_viewport_immediate(
+                egui::ViewportId::from_hash_of("track_map"),
+                egui::ViewportBuilder::default()
+                    .with_title("Track Map")
+                    .with_inner_size([320.0, 320.0])
+                    .with_transparent(true)
+                    .with_decorations(false)
+                    .with_window_level(egui::WindowLevel::AlwaysOnTop),
+                |ctx, _class| {
+                    egui::CentralPanel::default()
+                        .frame(egui::Frame::NONE)
+                        .show(ctx, |ui| {
+                            let size = ui.available_size();
+                            let closed =
+                                crate::renderer::track_map_panel::TrackMapPanel::new(
+                                    &centerline,
+                                    &corners,
+                                    car_track_pos,
+                                    ref_samples.as_deref(),
+                                    laps_averaged,
+                                    has_centerline,
+                                    coach_enabled,
+                                )
+                                .show(ui, size);
+                            if closed {
+                                close_arc.store(true, std::sync::atomic::Ordering::Relaxed);
+                            }
+                        });
+                    let vp = ctx.viewport_rect();
+                    let close_center = egui::Pos2::new(vp.max.x - 14.0, vp.min.y + 12.0);
+                    if ctx.input(|i| {
+                        let pressed = i.pointer.button_pressed(egui::PointerButton::Primary);
+                        let on_close = i.pointer.interact_pos().is_some_and(|p| {
+                            (p.x - close_center.x).hypot(p.y - close_center.y) < 12.0
+                        });
+                        pressed && !on_close
+                    }) {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                    }
+                },
+            );
+
+            if close_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                self.settings.coach.show_track_map = false;
+                let _ = self.settings.save_to_config_path();
+            }
+        }
     }
 }
 
@@ -1544,6 +1609,7 @@ fn draw_config(
             );
         }
         ui.checkbox(&mut settings.coach.tts_enabled, "Enable spoken tips");
+        ui.checkbox(&mut settings.coach.show_track_map, "Show track map");
 
         ui.add_space(4.0);
         if ui.add(styled_button("Open data folder")).clicked() {

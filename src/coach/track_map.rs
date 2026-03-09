@@ -57,11 +57,11 @@ impl TrackMap {
     }
 
     /// Returns the corner that *contains* the given track position, i.e. where
-    /// `brake_point <= pos <= exit`. Returns `None` on a straight.
+    /// `turn_in <= pos <= zone_exit`. Returns `None` on a straight.
     pub fn corner_at(&self, track_pos: f32) -> Option<&DetectedCorner> {
         self.corners
             .iter()
-            .find(|c| track_pos >= c.brake_point && track_pos <= c.exit)
+            .find(|c| track_pos >= c.turn_in && track_pos <= c.zone_exit)
     }
 
     pub fn corner_by_id(&self, id: u8) -> Option<&DetectedCorner> {

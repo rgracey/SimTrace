@@ -1,24 +1,29 @@
 //! Corner detection from lap telemetry.
 //!
-//! Two strategies, selected automatically per lap:
+//! `DetectedCorner` describes **track geometry only** — where corners are,
+//! their direction, and the geometric apex.  It contains no performance data
+//! (brake points, exit throttle, apex speeds).  That information lives in
+//! `CornerPerf` inside `ReferenceLap` and changes with every car and session.
 //!
-//! **Curvature-based** (preferred): when the plugin supplies a heading/yaw
-//! signal, corners are identified as sustained high-curvature zones
-//! (Δheading / Δtrack_pos).  This is purely geometric — it is completely
-//! independent of how fast the driver took the corner.
+//! Two detection strategies:
 //!
-//! **Speed-based** (fallback): when heading is unavailable (AMS2, mock) the
-//! detector falls back to finding local speed minima with a significant
-//! approach-speed drop, the approach that was used before heading support.
+//! **Centerline-based** (preferred): corners are sustained high-curvature zones
+//! derived from the world-space path.  The apex is the point of maximum
+//! absolute curvature within the zone — a purely geometric quantity.
 //!
-//! After the initial detection, `CornerDetector::refine` converges each
-//! corner's brake/apex/exit positions toward the true values over subsequent
-//! laps using an EWMA (α = 0.25).
+//! **Speed-based** (fallback): used when world XZ is unavailable (AMS2, mock).
+//! Corners are local speed minima.  The apex is the speed minimum, which is an
+//! approximation of the geometric apex.
+//!
+//! `CornerDetector::refine` converges the apex position toward the speed
+//! minimum over subsequent laps (useful for the speed-based fallback) and
+//! increments `confidence`.
 
 use std::cmp::Ordering;
 
 use serde::{Deserialize, Serialize};
 
+use super::centerline::Centerline;
 use super::lap::LapSample;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -27,32 +32,34 @@ pub enum CornerDirection {
     Right,
 }
 
-/// A corner as it appears in a saved track map.
+/// A corner described purely in terms of track geometry.
+///
+/// None of the fields here depend on how fast a particular car/driver went —
+/// they describe where the corner *is*, not how to drive it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DetectedCorner {
     /// 1-based index, ordered by track position.
     pub id: u8,
     pub direction: CornerDirection,
-    /// Track position where braking typically starts.
-    pub brake_point: f32,
-    /// Track position of the geometric turn-in.
+    /// Track position where the curvature zone begins (geometric turn-in).
     pub turn_in: f32,
-    /// Track position of the apex (speed minimum).
+    /// Track position of the geometric apex — peak curvature for centerline
+    /// detection, speed minimum for the speed-based fallback.
     pub apex: f32,
-    /// Track position where meaningful throttle begins on exit.
-    pub exit: f32,
-    /// How many laps have contributed to this corner's positions (0 = provisional).
+    /// Track position where the curvature zone ends.
+    pub zone_exit: f32,
+    /// How many laps have confirmed this geometry (0 = provisional).
     pub confidence: u8,
 }
 
 pub struct CornerDetector;
 
 impl CornerDetector {
-    /// Detect corners from a completed lap's samples.
+    /// Detect corners from a completed lap.
     ///
-    /// Automatically chooses curvature-based or speed-based detection
-    /// depending on whether heading data is present.
-    pub fn detect(samples: &[LapSample]) -> Vec<DetectedCorner> {
+    /// Uses the centerline's curvature signal when available, otherwise falls
+    /// back to speed-based detection.
+    pub fn detect(centerline: Option<&Centerline>, samples: &[LapSample]) -> Vec<DetectedCorner> {
         if samples.len() < 60 {
             return vec![];
         }
@@ -64,132 +71,53 @@ impl CornerDetector {
                 .unwrap_or(Ordering::Equal)
         });
 
-        // Determine whether heading is usable by summing total |rotation|.
-        // On a real lap the car completes ≈ 2π radians of turning.  A flat
-        // zero heading signal produces essentially 0 total rotation.
-        let total_rotation: f32 = sorted
-            .windows(2)
-            .map(|w| angle_diff_rad(w[1].heading, w[0].heading).abs())
-            .sum();
-
-        if total_rotation > 1.0 {
-            detect_by_curvature(&sorted)
-        } else {
-            detect_by_speed(&sorted)
+        match centerline {
+            Some(cl) => detect_by_centerline(cl, &sorted),
+            None => detect_by_speed(&sorted),
         }
     }
 
-    /// Refine an existing corner's positions from a new lap using EWMA (α = 0.25).
+    /// Converge the apex position toward the speed minimum from a new lap.
+    ///
+    /// This is most useful for the speed-based fallback path, where the initial
+    /// apex estimate may be noisy.  For centerline-based corners the apex is
+    /// already geometric and stable, so refinement has little effect.
     pub fn refine(corner: &mut DetectedCorner, new_samples: &[LapSample]) {
         let nearby: Vec<&LapSample> = new_samples
             .iter()
-            .filter(|s| (s.track_pos - corner.apex).abs() < 0.04)
+            .filter(|s| (s.track_pos - corner.apex).abs() < 0.05)
             .collect();
 
-        if nearby.is_empty() {
-            return;
-        }
-
-        let new_apex = nearby
+        if let Some(new_apex) = nearby
             .iter()
             .min_by(|a, b| {
                 a.speed_kph
                     .partial_cmp(&b.speed_kph)
                     .unwrap_or(Ordering::Equal)
             })
-            .map(|s| s.track_pos);
+            .map(|s| s.track_pos)
+        {
+            corner.apex = lerp(corner.apex, new_apex, 0.25);
+        }
 
-        let Some(new_apex_pos) = new_apex else {
-            return;
-        };
-
-        let mut sorted = new_samples.to_vec();
-        sorted.sort_by(|a, b| {
-            a.track_pos
-                .partial_cmp(&b.track_pos)
-                .unwrap_or(Ordering::Equal)
-        });
-        let Some(idx) = sorted
-            .iter()
-            .position(|s| (s.track_pos - new_apex_pos).abs() < 0.002)
-        else {
-            return;
-        };
-
-        const ALPHA: f32 = 0.25;
-        let new_brake = find_brake_point(&sorted, idx);
-        let new_exit = find_exit_point(&sorted, idx);
-
-        corner.apex = lerp(corner.apex, new_apex_pos, ALPHA);
-        corner.brake_point = lerp(corner.brake_point, new_brake, ALPHA);
-        corner.exit = lerp(corner.exit, new_exit, ALPHA);
         corner.confidence = (corner.confidence + 1).min(20);
     }
 }
 
-// ── Curvature-based detection ─────────────────────────────────────────────────
+// ── Centerline-based detection ────────────────────────────────────────────────
 
-fn detect_by_curvature(sorted: &[LapSample]) -> Vec<DetectedCorner> {
-    let n = sorted.len();
+/// Physical curvature threshold: κ > 0.008 m⁻¹ ≈ radius < 125 m.
+const CORNER_THRESHOLD: f32 = 0.008;
 
-    // --- Step 1: Unwrap heading to a continuous signal ---
-    // Raw heading wraps at ±π.  Accumulating angle_diff gives a monotone
-    // signal (approx. ±2π per lap) that can be smoothed and differentiated
-    // without discontinuity artefacts.
-    let mut unwrapped = vec![0.0f32; n];
-    unwrapped[0] = sorted[0].heading;
-    for i in 1..n {
-        unwrapped[i] =
-            unwrapped[i - 1] + angle_diff_rad(sorted[i].heading, sorted[i - 1].heading);
-    }
+fn detect_by_centerline(cl: &Centerline, sorted: &[LapSample]) -> Vec<DetectedCorner> {
+    let pts = &cl.points;
+    let n = pts.len();
 
-    // --- Step 2: Light smoothing of the heading signal ---
-    // Just removes per-frame jitter; keep the window small (≈ 0.5 % of lap).
-    let h_win = ((n / 200).max(3)).min(15);
-    let smooth_h = rolling_avg(&unwrapped, h_win);
-
-    // --- Step 3: Curvature via central difference over a wider window ---
-    // Computing dh/dp sample-by-sample amplifies noise enormously because
-    // dp ≈ 1/n is tiny.  Widening the base to ≈ 1 % of the lap on each side
-    // gives a stable, high-SNR estimate:
-    //
-    //   curvature[i] = (heading[i + half] − heading[i − half])
-    //                / (track_pos[i + half] − track_pos[i − half])
-    //
-    // Units: radians per lap-fraction (rad / 1.0).
-    // Fast sweeper (30° over 5 % lap) → ≈ 10.  Hairpin (180° over 2 %) → ≈ 157.
-    // Straight (2° drift over 20 %) → ≈ 0.17.
-    let half = ((n / 100).max(5)).min(60); // ≈ 1 % of lap on each side
-    let mut curvature = vec![0.0f32; n];
-    for i in half..n - half {
-        let dh = smooth_h[i + half] - smooth_h[i - half];
-        let dp = (sorted[i + half].track_pos - sorted[i - half].track_pos).max(1e-6);
-        curvature[i] = dh / dp;
-    }
-    // Fill edges with nearest valid value.
-    for i in 0..half {
-        curvature[i] = curvature[half];
-    }
-    for i in (n - half)..n {
-        curvature[i] = curvature[n - half - 1];
-    }
-
-    // --- Step 4: Adaptive threshold (mean + 0.5 σ) ---
-    // Using mean + 1σ was too conservative: tight hairpins inflate the
-    // distribution and push the threshold above moderate/fast corners.
-    // 0.5σ reliably includes fast sweepers while keeping straights out.
-    let abs_c: Vec<f32> = curvature.iter().map(|c| c.abs()).collect();
-    let mean_c = abs_c.iter().sum::<f32>() / n as f32;
-    let var_c = abs_c
+    // Mark above-threshold points.
+    let in_corner: Vec<bool> = pts
         .iter()
-        .map(|&c| (c - mean_c).powi(2))
-        .sum::<f32>()
-        / n as f32;
-    let std_c = var_c.sqrt();
-    let threshold = (mean_c + 0.5 * std_c).max(1.5);
-
-    // Mark samples inside a corner.
-    let in_corner: Vec<bool> = abs_c.iter().map(|&c| c > threshold).collect();
+        .map(|p| p.curvature.abs() > CORNER_THRESHOLD)
+        .collect();
 
     // Extract contiguous zones.
     let mut zones: Vec<(usize, usize)> = Vec::new();
@@ -208,15 +136,12 @@ fn detect_by_curvature(sorted: &[LapSample]) -> Vec<DetectedCorner> {
         zones.push((s, n - 1));
     }
 
-    // Merge zones whose gap is < 0.5 % of the lap.
-    // This only catches a single corner's curvature zone briefly dipping below
-    // threshold mid-corner (noise).  Genuine chicane elements are > 0.5 % apart
-    // and must stay as separate corners for the coach to address them individually.
+    // Merge zones whose gap is < 0.5 % of the track (noise within one corner).
     const MERGE_GAP: f32 = 0.005;
     let mut merged: Vec<(usize, usize)> = Vec::new();
     for (s, e) in zones {
         if let Some(last) = merged.last_mut() {
-            let gap = sorted[s].track_pos - sorted[last.1].track_pos;
+            let gap = pts[s].track_pos - pts[last.1].track_pos;
             if gap < MERGE_GAP {
                 last.1 = e;
                 continue;
@@ -225,53 +150,59 @@ fn detect_by_curvature(sorted: &[LapSample]) -> Vec<DetectedCorner> {
         merged.push((s, e));
     }
 
-    // Drop zones that span < 0.5 % of the lap (noise spikes).
-    const MIN_ZONE: f32 = 0.005;
+    // Drop zones spanning < 0.3 % of track (noise).
+    const MIN_ZONE: f32 = 0.003;
     let zones: Vec<_> = merged
         .into_iter()
-        .filter(|(s, e)| sorted[*e].track_pos - sorted[*s].track_pos >= MIN_ZONE)
+        .filter(|(s, e)| pts[*e].track_pos - pts[*s].track_pos >= MIN_ZONE)
         .collect();
 
-    // Build a DetectedCorner per zone.
     let mut corners: Vec<DetectedCorner> = Vec::new();
     for (s, e) in zones {
-        let zone = &sorted[s..=e];
+        let zone_pts = &pts[s..=e];
 
-        // Apex = minimum speed within the zone.
-        let apex_local = zone
-            .iter()
-            .enumerate()
-            .min_by(|(_, a), (_, b)| {
-                a.speed_kph.partial_cmp(&b.speed_kph).unwrap_or(Ordering::Equal)
-            })
-            .map(|(i, _)| i)
-            .unwrap_or((e - s) / 2);
-        let apex_global = s + apex_local;
-
-        // Direction from the sign of the mean curvature in the zone.
-        // Positive curvature = the heading increases = left turn in most
-        // conventions; exact mapping depends on the game's coord system but
-        // is consistently applied, which is all the coach needs.
-        let mean_curv: f32 =
-            curvature[s..=e].iter().sum::<f32>() / (e - s + 1) as f32;
-        let direction = if mean_curv >= 0.0 {
+        // Direction from sign of mean curvature.
+        let mean_k: f32 =
+            zone_pts.iter().map(|p| p.curvature).sum::<f32>() / zone_pts.len() as f32;
+        let direction = if mean_k >= 0.0 {
             CornerDirection::Left
         } else {
             CornerDirection::Right
         };
 
-        // Turn-in is the start of the high-curvature zone.
-        let turn_in = sorted[s].track_pos;
-        let brake_point = find_brake_point(&sorted, apex_global);
-        let exit = find_exit_point(&sorted, apex_global);
+        // Apex = point of maximum absolute curvature within the zone.
+        // This is a purely geometric quantity — it does not depend on speed.
+        let apex_local = zone_pts
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| {
+                a.curvature
+                    .abs()
+                    .partial_cmp(&b.curvature.abs())
+                    .unwrap_or(Ordering::Equal)
+            })
+            .map(|(i, _)| i)
+            .unwrap_or(zone_pts.len() / 2);
+
+        let turn_in = pts[s].track_pos;
+        let apex = pts[s + apex_local].track_pos;
+        let zone_exit = pts[e].track_pos;
+
+        // Verify the sorted lap samples have coverage in this zone before
+        // accepting — guards against the first partial lap edge case.
+        let has_coverage = sorted
+            .iter()
+            .any(|sample| sample.track_pos >= turn_in && sample.track_pos <= zone_exit);
+        if !has_coverage {
+            continue;
+        }
 
         corners.push(DetectedCorner {
             id: 0,
             direction,
-            brake_point,
             turn_in,
-            apex: sorted[apex_global].track_pos,
-            exit,
+            apex,
+            zone_exit,
             confidence: 1,
         });
     }
@@ -289,8 +220,6 @@ fn detect_by_speed(sorted: &[LapSample]) -> Vec<DetectedCorner> {
     let min_gap = (sorted.len() / 80).max(5);
     let minima = local_minima(&smoothed, min_gap);
 
-    // Approach window: look back ~15 % of the lap for the peak speed before
-    // each apex.  Backward-only avoids picking up the exit of the next corner.
     let approach_window = (sorted.len() * 15 / 100).max(20);
 
     let mut corners: Vec<DetectedCorner> = Vec::new();
@@ -322,46 +251,30 @@ fn detect_by_speed(sorted: &[LapSample]) -> Vec<DetectedCorner> {
             CornerDirection::Left
         };
 
-        let brake_point = find_brake_point(sorted, idx);
         let turn_in = find_turn_in(sorted, idx);
-        let exit = find_exit_point(sorted, idx);
+        let zone_exit = find_zone_exit(sorted, idx);
 
         corners.push(DetectedCorner {
             id: 0,
             direction,
-            brake_point,
             turn_in,
             apex: sorted[idx].track_pos,
-            exit,
+            zone_exit,
             confidence: 1,
         });
     }
 
-    // Merge apices within 1.5 % of each other.
     corners = merge_nearby(corners, 0.015);
     assign_ids(corners)
 }
 
-// ── Shared helpers ────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn assign_ids(mut corners: Vec<DetectedCorner>) -> Vec<DetectedCorner> {
     for (i, c) in corners.iter_mut().enumerate() {
         c.id = (i + 1) as u8;
     }
     corners
-}
-
-/// Signed difference between two angles in radians, normalised to (−π, π].
-fn angle_diff_rad(a: f32, b: f32) -> f32 {
-    let diff = a - b;
-    let pi = std::f32::consts::PI;
-    if diff > pi {
-        diff - 2.0 * pi
-    } else if diff < -pi {
-        diff + 2.0 * pi
-    } else {
-        diff
-    }
 }
 
 fn rolling_avg(values: &[f32], window: usize) -> Vec<f32> {
@@ -395,15 +308,6 @@ fn local_minima(values: &[f32], min_gap: usize) -> Vec<usize> {
     result
 }
 
-fn find_brake_point(samples: &[LapSample], apex_idx: usize) -> f32 {
-    for i in (0..apex_idx).rev() {
-        if samples[i].brake > 0.05 {
-            return samples[i].track_pos;
-        }
-    }
-    samples[0].track_pos
-}
-
 fn find_turn_in(samples: &[LapSample], apex_idx: usize) -> f32 {
     for i in (0..apex_idx).rev() {
         if samples[i].steering_angle.abs() < 5.0 {
@@ -413,7 +317,9 @@ fn find_turn_in(samples: &[LapSample], apex_idx: usize) -> f32 {
     samples[0].track_pos
 }
 
-fn find_exit_point(samples: &[LapSample], apex_idx: usize) -> f32 {
+/// Estimate the end of the corner zone: where speed has recovered and
+/// throttle is meaningfully applied.  Used only for the speed-based fallback.
+fn find_zone_exit(samples: &[LapSample], apex_idx: usize) -> f32 {
     for i in (apex_idx + 1)..samples.len().saturating_sub(1) {
         if samples[i].throttle > 0.20 && samples[i].speed_kph > samples[i - 1].speed_kph {
             return samples[i].track_pos;

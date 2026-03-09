@@ -133,7 +133,8 @@ impl GamePlugin for Ams2Plugin {
                 abs_active,
                 tc_active: false,
                 track_position: 0.0,
-                heading: 0.0, // pCars2 orientation offset not yet mapped
+                world_x: 0.0,
+                world_z: 0.0,
             };
 
             let timestamp = std::time::SystemTime::now()
